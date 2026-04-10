@@ -1,0 +1,15 @@
+# System files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Backup files
+*_bak.*
+*.bak
+*.tmp
+
+# Node modules (if any)
+node_modules/
+
+# Logs
+*.log
