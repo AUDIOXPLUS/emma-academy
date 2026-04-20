@@ -7321,20 +7321,20 @@ function sc_showConfirmPanel() {
     // Track 3: use voiceRefLeft if known, otherwise mirror-assume symmetric stage
     var leftRef = scoreState.voiceRefLeft !== null ? scoreState.voiceRefLeft : -taps[0].pan;
     spacing   = (taps[0].pan - leftRef) / 4;
-    tolerance = spacing / 2;
+    tolerance = spacing / 4;
     if (scoreState.voiceRefLeft === null) provisional = true;
   } else if (et === 2 && refPan !== null) {
     // Track 2: estimate spacing assuming RIGHT = mirror of LEFT (symmetric stage)
     // provisional_right = -refPan  →  spacing = (-refPan - refPan)/4 = -refPan/2
     spacing   = -refPan / 2;   // e.g. voice at -0.97 → spacing = 0.485
-    tolerance = spacing / 2;
+    tolerance = spacing / 4;
     provisional = true;
   } else if (et >= 4 && scoreState.calc.center === null) {
     // Tracks 4-6 loaded without Track 2+3: use EMMA standard position fallbacks
     var fallbackPans = {4: 0, 5: -0.35, 6: 0.35};
     refPan    = fallbackPans[et] !== undefined ? fallbackPans[et] : 0;
     spacing   = 0.30;
-    tolerance = 0.15;
+    tolerance = 0.075;
     provisional = true;
   }
 
@@ -7362,11 +7362,11 @@ function sc_showConfirmPanel() {
       var absPct = Math.round(tap.pan * 100);
       posStr = absPct === 0 ? 'C' : (absPct > 0 ? 'R'+Math.abs(absPct)+'%' : 'L'+Math.abs(absPct)+'%');
     } else if (refPan !== null && spacing !== null) {
-      // Deviation as % of spacing (100% = next adjacent position, 50% = tolerance limit)
+      // Deviation as % of full stereo field — directly comparable with tolerance shown in header
       var devPan = tap.pan - refPan;
-      var devSpacingPct = Math.round((devPan / spacing) * 100);
-      if (devSpacingPct === 0) posStr = '±0%';
-      else posStr = (devSpacingPct > 0 ? '+' : '') + devSpacingPct + '%';
+      var devFieldPct = Math.round(devPan * 100);
+      if (devFieldPct === 0) posStr = '±0%';
+      else posStr = (devFieldPct > 0 ? '+' : '') + devFieldPct + '%';
 
       score = Math.abs(devPan) <= tolerance
         ? '✓'   // ✓
@@ -7485,7 +7485,7 @@ function sc_computeScores(et, taps) {
     scoreState.calc.center = scoreState.calc.center !== null ? scoreState.calc.center : 0;
     scoreState.calc.lc     = scoreState.calc.lc     !== null ? scoreState.calc.lc     : -0.35;
     scoreState.calc.rc     = scoreState.calc.rc     !== null ? scoreState.calc.rc     :  0.35;
-    scoreState.calc.tolerance = 0.15;
+    scoreState.calc.tolerance = 0.075;
   }
   expectedPan = sc_getExpectedPan(et);
   scoreState.scores[et] = taps.map(function(tp) {
@@ -7503,7 +7503,7 @@ function sc_calcPositions() {
   scoreState.calc.lc = (L + scoreState.calc.center) / 2;
   scoreState.calc.rc = (scoreState.calc.center + R) / 2;
   scoreState.calc.spacing = (R - L) / 4;
-  scoreState.calc.tolerance = (R - L) / 8;
+  scoreState.calc.tolerance = (R - L) / 16;
 }
 
 function sc_resetProcedure() {
