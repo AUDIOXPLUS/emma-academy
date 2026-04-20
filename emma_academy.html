@@ -7321,20 +7321,20 @@ function sc_showConfirmPanel() {
     // Track 3: use voiceRefLeft if known, otherwise mirror-assume symmetric stage
     var leftRef = scoreState.voiceRefLeft !== null ? scoreState.voiceRefLeft : -taps[0].pan;
     spacing   = (taps[0].pan - leftRef) / 4;
-    tolerance = spacing / 4;
+    tolerance = spacing / 8;
     if (scoreState.voiceRefLeft === null) provisional = true;
   } else if (et === 2 && refPan !== null) {
     // Track 2: estimate spacing assuming RIGHT = mirror of LEFT (symmetric stage)
     // provisional_right = -refPan  →  spacing = (-refPan - refPan)/4 = -refPan/2
     spacing   = -refPan / 2;   // e.g. voice at -0.97 → spacing = 0.485
-    tolerance = spacing / 4;
+    tolerance = spacing / 8;
     provisional = true;
   } else if (et >= 4 && scoreState.calc.center === null) {
     // Tracks 4-6 loaded without Track 2+3: use EMMA standard position fallbacks
     var fallbackPans = {4: 0, 5: -0.35, 6: 0.35};
     refPan    = fallbackPans[et] !== undefined ? fallbackPans[et] : 0;
     spacing   = 0.30;
-    tolerance = 0.075;
+    tolerance = 0.0375;
     provisional = true;
   }
 
@@ -7485,7 +7485,7 @@ function sc_computeScores(et, taps) {
     scoreState.calc.center = scoreState.calc.center !== null ? scoreState.calc.center : 0;
     scoreState.calc.lc     = scoreState.calc.lc     !== null ? scoreState.calc.lc     : -0.35;
     scoreState.calc.rc     = scoreState.calc.rc     !== null ? scoreState.calc.rc     :  0.35;
-    scoreState.calc.tolerance = 0.075;
+    scoreState.calc.tolerance = 0.0375;
   }
   expectedPan = sc_getExpectedPan(et);
   scoreState.scores[et] = taps.map(function(tp) {
@@ -7503,7 +7503,7 @@ function sc_calcPositions() {
   scoreState.calc.lc = (L + scoreState.calc.center) / 2;
   scoreState.calc.rc = (scoreState.calc.center + R) / 2;
   scoreState.calc.spacing = (R - L) / 4;
-  scoreState.calc.tolerance = (R - L) / 16;
+  scoreState.calc.tolerance = (R - L) / 32;
 }
 
 function sc_resetProcedure() {
