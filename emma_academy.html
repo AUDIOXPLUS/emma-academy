@@ -7062,10 +7062,9 @@ function sc_drawFrame(t) {
     if (!pr) continue;
     var dp = pr.pan, dy = pr.yPos != null ? pr.yPos : 0.5;
     var et_draw = scoreState.emmaTrack;
-    if (et_draw >= 4 && et_draw <= 6 && scoreState.calc.center !== null) {
-      var emmaDef = {4: 0, 5: -0.35, 6: 0.35};
+    if (et_draw >= 4 && et_draw <= 6) {
       var drawTgt = sc_getTargetPan(et_draw);
-      if (drawTgt !== null) dp = Math.max(-1, Math.min(1, dp + (drawTgt - emmaDef[et_draw])));
+      if (drawTgt !== null) dp = Math.max(-1, Math.min(1, drawTgt));
     }
     var x = vC + dp*vH*.95, y = sT + dy*sH;
     var rgb = hex2rgb(inst.color), r = rgb.r, g = rgb.g, b = rgb.b;
