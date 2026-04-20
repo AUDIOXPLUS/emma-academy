@@ -6558,7 +6558,7 @@ function sg_saveScoresheet() {
 // =============================================
 // POSITION SCORE STATE
 // =============================================
-var sc_ax = null, sc_ab = null, sc_an = null, sc_src = null;
+var sc_ax = null, sc_ab = null, sc_an = null, sc_src = null, sc_panner = null;
 var sc_I = [], sc_currentTrackIdx = -1;
 var sc_playing = false, sc_curT = 0, sc_dur = 0;
 var sc_looping = false;
@@ -6915,7 +6915,20 @@ function sc_play() {
   sc_src = sc_ax.createBufferSource();
   sc_src.buffer = sc_ab;
   sc_an = sc_ax.createAnalyser();
-  sc_src.connect(sc_an);
+  var entry = sc_tracklist[sc_currentTrackIdx];
+  var targetPan = sc_getTargetPan(entry && entry.emmaTrack);
+  if (targetPan !== null && typeof sc_ax.createStereoPanner === 'function') {
+    sc_panner = sc_ax.createStereoPanner();
+    sc_panner.channelCount = 1;
+    sc_panner.channelCountMode = 'explicit';
+    sc_panner.channelInterpretation = 'speakers';
+    sc_panner.pan.value = Math.max(-1, Math.min(1, targetPan));
+    sc_src.connect(sc_panner);
+    sc_panner.connect(sc_an);
+  } else {
+    sc_panner = null;
+    sc_src.connect(sc_an);
+  }
   sc_an.connect(sc_ax.destination);
   sc_startedAt = sc_ax.currentTime - sc_offset;
   sc_src.start(0, sc_offset);
@@ -6938,6 +6951,7 @@ function sc_pause() {
     try { sc_src.stop(); } catch(e){}
   }
   sc_playing = false;
+  if (sc_panner) { try { sc_panner.disconnect(); } catch(e){} sc_panner = null; }
   if (sc_rafId) { cancelAnimationFrame(sc_rafId); sc_rafId = null; }
   var btn = document.getElementById('sc-btn-start');
   if (btn) {
@@ -7504,6 +7518,20 @@ function sc_calcPositions() {
   scoreState.calc.rc = (scoreState.calc.center + R) / 2;
   scoreState.calc.spacing = (R - L) / 4;
   scoreState.calc.tolerance = (R - L) / 32;
+  if (sc_panner && sc_playing && sc_ax) {
+    var t = sc_getTargetPan(scoreState.emmaTrack);
+    if (t !== null) sc_panner.pan.setTargetAtTime(t, sc_ax.currentTime, 0.03);
+  }
+}
+
+function sc_getTargetPan(emmaTrack) {
+  if (emmaTrack < 4 || emmaTrack > 6) return null;
+  var defaults = {4: 0, 5: -0.35, 6: 0.35};
+  var c = scoreState.calc;
+  if (c.center === null) return defaults[emmaTrack];
+  if (emmaTrack === 4) return c.center;
+  if (emmaTrack === 5) return c.lc;
+  return c.rc;
 }
 
 function sc_resetProcedure() {
