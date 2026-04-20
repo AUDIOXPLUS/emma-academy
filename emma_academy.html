@@ -7061,6 +7061,12 @@ function sc_drawFrame(t) {
     var pr = sc_interpKF(inst.keyframes, t);
     if (!pr) continue;
     var dp = pr.pan, dy = pr.yPos != null ? pr.yPos : 0.5;
+    var et_draw = scoreState.emmaTrack;
+    if (et_draw >= 4 && et_draw <= 6 && scoreState.calc.center !== null) {
+      var emmaDef = {4: 0, 5: -0.35, 6: 0.35};
+      var drawTgt = sc_getTargetPan(et_draw);
+      if (drawTgt !== null) dp = Math.max(-1, Math.min(1, dp + (drawTgt - emmaDef[et_draw])));
+    }
     var x = vC + dp*vH*.95, y = sT + dy*sH;
     var rgb = hex2rgb(inst.color), r = rgb.r, g = rgb.g, b = rgb.b;
     var en = sc_playing ? sc_getEnergy(pr.freqLow || 200, pr.freqHigh || 4000) : 0;
