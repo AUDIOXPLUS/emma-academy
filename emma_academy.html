@@ -6655,9 +6655,10 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
 
   ctx.save();
 
-  // Depth-plane slice on the dashboard: a horizontal line at the ball's
-  // depth that widens with perspective — narrow near the horizon, full
-  // width when close. Gives a "cut plane" reference along the cruscotto.
+  // Depth-plane slice on the dashboard: a curve at the ball's depth
+  // that follows the cruscotto profile. Edges rise toward the horizon
+  // like the concave top of a dashboard cockpit (parabolic fall-off).
+  // The curve widens with perspective and flattens when the ball is far.
   if (!isNone) {
     var horizonY = sT + sH * sg_eyeLevel;
     var maxY     = sg_perspMaxY(sT, sH);
@@ -6665,22 +6666,38 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
     var planeHW  = (vR - vL) * 0.48 * (0.10 + 0.90 * dashT);
     var planeL   = mx - planeHW;
     var planeR   = mx + planeHW;
-    var coreA    = 0.30 + 0.45 * dashT;
+    // Lift of the endpoints above the ball's Y: minimal near the horizon
+    // (the dashboard is almost edge-on there) and pronounced up close.
+    var curveLift = planeHW * 0.34 * (0.25 + 0.75 * dashT);
+    var coreA     = 0.30 + 0.45 * dashT;
+
     var g = ctx.createLinearGradient(planeL, 0, planeR, 0);
     g.addColorStop(0,    'rgba(' + color + ',0)');
     g.addColorStop(0.18, 'rgba(' + color + ',' + (coreA * 0.55).toFixed(3) + ')');
     g.addColorStop(0.50, 'rgba(' + color + ',' + coreA.toFixed(3) + ')');
     g.addColorStop(0.82, 'rgba(' + color + ',' + (coreA * 0.55).toFixed(3) + ')');
     g.addColorStop(1,    'rgba(' + color + ',0)');
-    // Soft glow underlay
+
+    // Sample the parabola y(x) = my - lift * ((x-mx)/planeHW)^2.
+    var PLANE_N = 40;
+    ctx.beginPath();
+    for (var pi = 0; pi <= PLANE_N; pi++) {
+      var xFrac = pi / PLANE_N;
+      var cx = planeL + (planeR - planeL) * xFrac;
+      var xN = xFrac * 2 - 1;                   // -1..+1 across the span
+      var cy = my - curveLift * xN * xN;
+      if (pi === 0) ctx.moveTo(cx, cy);
+      else          ctx.lineTo(cx, cy);
+    }
+
+    // Soft glow underlay, then crisp core line, both following the curve.
     ctx.strokeStyle = g;
-    ctx.lineWidth = (3.5 + 3*dashT) * d;
+    ctx.lineWidth = (3.5 + 3 * dashT) * d;
     ctx.globalAlpha = 0.35;
-    ctx.beginPath(); ctx.moveTo(planeL, my); ctx.lineTo(planeR, my); ctx.stroke();
+    ctx.stroke();
     ctx.globalAlpha = 1;
-    // Crisp core line
     ctx.lineWidth = Math.max(1*d, 1.2*d + 0.4*d*dashT);
-    ctx.beginPath(); ctx.moveTo(planeL, my); ctx.lineTo(planeR, my); ctx.stroke();
+    ctx.stroke();
   }
 
   // Shadow lying on the dashboard — flat, elongated along the surface
