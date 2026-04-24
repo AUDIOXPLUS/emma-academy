@@ -6673,12 +6673,25 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
     //   • 7  → 5  : sharp acceleration (big jump across the wheel)
     //   • 5  → 1  : slows down again
     // Each anchor is (yN, T) where T is the fraction of the total travel.
+    // One entry per score boundary (upper yN of each score). Edit any
+    // single T value to re-place a specific score independently.
     var SG_LASER_BREAKS = [
-      { yN: 0.00, T: 0.22 },   // score 15 → dashboard/windshield joint
-      { yN: 0.46, T: 0.29 },   // score 10 (where 9 used to be)
-      { yN: 0.60, T: 0.30 },   // score 7/8 boundary — 9 lands just before here
-      { yN: 0.76, T: 0.50 },   // score 5/6 boundary
-      { yN: 1.00, T: 0.90 }    // score 1
+      { yN: 0.00, T: 0.220 },  // start (score 15 farthest edge)
+      { yN: 0.06, T: 0.228 },  // end of score 15
+      { yN: 0.15, T: 0.240 },  // end of score 14
+      { yN: 0.24, T: 0.252 },  // end of score 13
+      { yN: 0.32, T: 0.263 },  // end of score 12
+      { yN: 0.39, T: 0.272 },  // end of score 11
+      { yN: 0.46, T: 0.281 },  // end of score 10
+      { yN: 0.54, T: 0.292 },  // end of score 9
+      { yN: 0.60, T: 0.300 },  // end of score 8  (7/8 boundary)
+      { yN: 0.68, T: 0.400 },  // end of score 7
+      { yN: 0.76, T: 0.500 },  // end of score 6  (5/6 boundary)
+      { yN: 0.82, T: 0.600 },  // end of score 5
+      { yN: 0.87, T: 0.683 },  // end of score 4
+      { yN: 0.92, T: 0.767 },  // end of score 3
+      { yN: 0.97, T: 0.850 },  // end of score 2
+      { yN: 1.00, T: 0.900 }   // end of score 1
     ];
     var tY = Math.max(0, Math.min(1, yN));
     var lineT = SG_LASER_BREAKS[SG_LASER_BREAKS.length - 1].T;
