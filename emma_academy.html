@@ -6857,14 +6857,19 @@ function sg_drawDashboard(ctx, W, H, vL, vR, vC, sT, sB, d, showZones) {
   // ── Background image (real rulebook diagram) ───────────────────────────────
   if (sg_dashImage && sg_dashImage.complete) {
     var imgAR  = sg_dashImage.width / sg_dashImage.height;
-    var baseW  = fw;
-    var baseH  = baseW / imgAR;
-    // Apply scale: pivot from horizontal center, vertical center + offset
+    // Size and offset are expressed as fractions of the scoring field
+    // height (sH) so the dashboard image keeps the same RELATIVE size
+    // and position inside the scoring field at any browser zoom level
+    // (topbar/transport CSS heights no longer skew the layout).
+    //   baseH = 50% of sH at scale 1 → drawH = baseH * sg_dashScaleY
+    //   offset fraction ≈ sg_dashOffsetY / 500 (legacy 100 ≈ 20% of sH)
+    var baseH  = sH * 0.5;
+    var baseW  = baseH * imgAR;
     var drawW  = baseW * sg_dashScaleX;
     var drawH  = baseH * sg_dashScaleY;
     var drawX  = vC - drawW * 0.5;
-    // Vertical: base-centered position + user offset, pivot stays at image center
-    var pivotY = sT + (sH - baseH) * 0.5 + baseH * 0.5 + sg_dashOffsetY * d;
+    var offsetFrac = sg_dashOffsetY / 500;         // legacy 100 → 0.20 of sH
+    var pivotY = sT + sH * 0.5 + sH * offsetFrac;
     var drawY  = pivotY - drawH * 0.5;
 
     ctx.save();
