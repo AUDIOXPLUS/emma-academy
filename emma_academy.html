@@ -2092,7 +2092,15 @@ function ta_saveProject(proj) {
     const u = URL.createObjectURL(b), a = document.createElement('a');
     const fn = (proj.name || 'project') + '.tap';
     a.href = u; a.download = fn; a.click(); URL.revokeObjectURL(u);
-    hint('Saved as ' + fn, 3000);
+    ta_toast('Saved as ' + fn);
+}
+function ta_toast(msg) {
+    const t = document.createElement('div');
+    t.textContent = msg;
+    t.style.cssText = 'position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:99999;padding:10px 20px;border-radius:18px;font-size:13px;color:#0a0a14;background:#4ecdc4;box-shadow:0 8px 24px rgba(0,0,0,.6);white-space:nowrap;font-family:inherit;pointer-events:none;opacity:0;transition:opacity .2s;';
+    document.body.appendChild(t);
+    requestAnimationFrame(() => { t.style.opacity = '1'; });
+    setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 250); }, 2800);
 }
 async function ta_loadProjectFromFile(file) {
     try { const d = JSON.parse(await file.text()); await ta_createProjectFromData(d); }
