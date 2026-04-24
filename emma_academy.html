@@ -6227,12 +6227,36 @@ function sg_onPU(e) {
   sg_updateUI();
 }
 
+// Perspective curve exponent — ball and scoring zones converge onto the horizon.
+var SG_PERSP_POW = 1.6;
+
+// Forward perspective: score-space yN (0=far, 1=near) → screen Y.
+// Above the horizon is compressed to a single line, so far instruments
+// visually sit AT eye level instead of floating in the sky.
+function sg_yNToScreenY(yN, sT, sH) {
+  var sB = sT + sH;
+  var horizonY = sT + sH * sg_eyeLevel;
+  var floorY   = sB;
+  if (floorY <= horizonY) return horizonY;
+  var t = Math.max(0, Math.min(1, yN));
+  return horizonY + (floorY - horizonY) * Math.pow(t, SG_PERSP_POW);
+}
+
+// Inverse perspective: canvas Y (pointer) → yN. Points above the horizon
+// clamp to yN=0 (score 15). Points inside the dashboard plane are mapped
+// through the inverse perspective curve so the pointer feels like it's
+// following a receding surface, not a flat slider.
 function sg_canvasYToNorm(yPx) {
   var d = window.devicePixelRatio || 1;
   var H = sg_canvas.height;
   var sT = (44 + 18) * d, sB = H - (60 + 18) * d, sH = sB - sT;
   if (sH <= 0) return null;
-  return Math.max(0, Math.min(1, (yPx - sT) / sH));
+  var horizonY = sT + sH * sg_eyeLevel;
+  var floorY   = sB;
+  if (yPx <= horizonY) return 0;
+  if (yPx >= floorY)   return 1;
+  var t = (yPx - horizonY) / (floorY - horizonY);
+  return Math.pow(t, 1 / SG_PERSP_POW);
 }
 
 function sg_getCanvasPt(e) {
@@ -6567,7 +6591,7 @@ function sg_drawDistanceGuide(ctx, W, H, vL, vR, vC, sT, sB, d) {
   ctx.font = 'bold ' + (8*d) + 'px JetBrains Mono,monospace';
   ctx.textAlign = 'right';
   ticks.forEach(function(tk) {
-    var ty = sT + sH * tk.y;
+    var ty = sg_yNToScreenY(tk.y, sT, sH);       // align ticks with the perspective curve
     var landmark = (tk.score === 15 || tk.score === 13 || tk.score === 9 || tk.score === 6 || tk.score === 3 || tk.score === 1);
     var tlen = landmark ? 9*d : 4*d;
     ctx.strokeStyle = landmark ? 'rgba(0,229,204,.65)' : 'rgba(0,229,204,.22)';
@@ -6591,28 +6615,34 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
   var isNone = !!sg_state.distanceNoSound;
   var yN = isNone ? 0.97 : sg_state.distanceY;
   if (yN == null) return;
-  var my = sT + sH * yN;
-  var mx = vC;
   var score = isNone ? 0 : sg_yToDistanceScore(yN);
   var label = isNone ? 'No sound' : sg_distanceLabel(score);
 
-  // Perspective scaling: small when far (top), much larger when close (bottom)
-  var radius = (8 + 44 * yN) * d;
-  var color  = isNone ? '180,180,190' : '0,229,204';
+  // ── Perspective projection ────────────────────────────────────────
+  // The ball rolls along the dashboard toward the horizon (eye level).
+  // Visual Y converges onto the horizon as the ball recedes; size
+  // shrinks to a speck. The score still comes from yN linearly via
+  // sg_yToDistanceScore.
+  var sizeT = Math.pow(yN, 1.35);               // aggressive size taper
+  var my    = sg_yNToScreenY(yN, sT, sH);
+  var mx    = vC;
+
+  // Perspective size: tiny speck at the horizon, large mass up close
+  var radius   = Math.max(2*d, (3 + 56 * sizeT) * d);
+  var color    = isNone ? '180,180,190' : '0,229,204';
 
   ctx.save();
 
   // Shadow lying on the dashboard — flat, elongated along the surface
-  // (not a round blob). Farther from the listener (low yN) = narrower,
-  // fainter and tucked tight under the ball; closer = wider, darker,
-  // and cast slightly farther back along the perspective axis.
-  var shCx = mx;
-  var shCy = my + radius * 0.78 + radius * 0.25 * yN;
-  var shRx = radius * (1.30 + 1.40 * yN);
-  var shRy = radius * (0.14 + 0.12 * yN);
-  var shA  = isNone ? 0.14 : (0.22 + 0.34 * yN);
+  // (not a round blob). Farther from the listener = narrower, fainter
+  // and tucked tight under the ball; closer = wider, darker, and cast
+  // slightly farther back along the perspective axis.
+  var shCy = my + radius * 0.78 + radius * 0.25 * sizeT;
+  var shRx = radius * (1.30 + 1.40 * sizeT);
+  var shRy = radius * (0.14 + 0.12 * sizeT);
+  var shA  = isNone ? 0.14 : (0.22 + 0.34 * sizeT);
   ctx.save();
-  ctx.translate(shCx, shCy);
+  ctx.translate(mx, shCy);
   ctx.scale(1, shRy / shRx);
   var shG = ctx.createRadialGradient(0, 0, 0, 0, 0, shRx);
   shG.addColorStop(0,    'rgba(0,0,0,' + shA.toFixed(3) + ')');
@@ -6622,13 +6652,13 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
   ctx.beginPath(); ctx.arc(0, 0, shRx, 0, Math.PI*2); ctx.fill();
   ctx.restore();
 
-  // Subtle contact-shadow smear that elongates back into depth (upward),
-  // stronger when the ball is near so the shadow "lies" along the dashboard.
+  // Contact-shadow smear stretched back into depth (upward) so the shadow
+  // hugs the receding dashboard plane. Fades when the ball is far.
   if (!isNone) {
-    var smA  = 0.18 + 0.22 * yN;
-    var smRx = radius * (0.55 + 0.55 * yN);
-    var smRy = radius * (0.42 + 0.45 * yN);
-    var smCy = my + radius * 0.18 - radius * 0.35 * yN;
+    var smA  = 0.18 + 0.22 * sizeT;
+    var smRx = radius * (0.55 + 0.55 * sizeT);
+    var smRy = radius * (0.42 + 0.45 * sizeT);
+    var smCy = my + radius * 0.18 - radius * 0.35 * sizeT;
     ctx.save();
     ctx.translate(mx, smCy);
     ctx.scale(smRx / smRy, 1);
@@ -6642,7 +6672,7 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
 
   // Outer halo (grows with distance perception)
   var halo = ctx.createRadialGradient(mx, my, radius*0.5, mx, my, radius*2.2);
-  halo.addColorStop(0, 'rgba(' + color + ',' + (isNone ? 0.15 : 0.22 + 0.18*yN) + ')');
+  halo.addColorStop(0, 'rgba(' + color + ',' + (isNone ? 0.15 : 0.22 + 0.18*sizeT) + ')');
   halo.addColorStop(1, 'rgba(' + color + ',0)');
   ctx.fillStyle = halo;
   ctx.beginPath(); ctx.arc(mx, my, radius*2.2, 0, Math.PI*2); ctx.fill();
@@ -6656,7 +6686,7 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
 
   // Ring
   ctx.strokeStyle = 'rgba(' + color + ',' + (isNone ? 0.6 : 0.95) + ')';
-  ctx.lineWidth = Math.max(1.5*d, 2*d * (0.7 + 0.6*yN));
+  ctx.lineWidth = Math.max(1*d, 2*d * (0.55 + 0.75*sizeT));
   ctx.beginPath(); ctx.arc(mx, my, radius, 0, Math.PI*2); ctx.stroke();
 
   // Crosshair
