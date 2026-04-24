@@ -2165,14 +2165,21 @@ const TA_PRESETS = [
     'tap-presets/16_Should_Have_Done_it_Like_This.tap'
 ];
 async function ta_loadPresets() {
-    for (const url of TA_PRESETS) {
+    const emptyEl = document.getElementById('ta-emptyState');
+    const origHTML = emptyEl.innerHTML;
+    let loaded = 0;
+    for (let i = 0; i < TA_PRESETS.length; i++) {
+        emptyEl.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i><p>Loading preset ' + (i + 1) + ' of ' + TA_PRESETS.length + '...</p>';
         try {
-            const r = await fetch(url);
-            if (!r.ok) { console.warn('[ta] preset missing:', url, r.status); continue; }
+            const r = await fetch(TA_PRESETS[i]);
+            if (!r.ok) { console.warn('[ta] preset missing:', TA_PRESETS[i], r.status); continue; }
             const data = await r.json();
             await ta_createProjectFromData(data);
-        } catch (e) { console.warn('[ta] preset failed:', url, e); }
+            loaded++;
+        } catch (e) { console.warn('[ta] preset failed:', TA_PRESETS[i], e); }
     }
+    if (ta_projects.length === 0) emptyEl.innerHTML = origHTML;
+    if (loaded > 0) ta_toast(loaded + ' preset' + (loaded > 1 ? 's' : '') + ' loaded');
 }
 
 // ======================== LAZY INIT ========================
