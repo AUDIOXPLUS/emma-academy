@@ -6663,28 +6663,33 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
   if (!isNone) {
     var horizonY = sT + sH * sg_eyeLevel;
     var floorY   = sB;
-    // Anchor the laser's far end at the dashboard-begins depth (score 9
-    // boundary, yN ~0.46) instead of the horizon. Anything farther than
-    // that is "beyond the windshield" and pins to the same starting line.
-    var LASER_FAR_YN = 0.46;
-    var mappedYN = LASER_FAR_YN + (1 - LASER_FAR_YN) * Math.max(0, Math.min(1, yN));
-    var lineT    = mappedYN / (SG_PERSP_K + mappedYN * (1 - SG_PERSP_K));
     var extra    = (floorY - horizonY) * 0.25;   // headroom past the floor
     var travel   = (floorY - horizonY) + extra;
-    var lineY    = horizonY + travel * lineT;
 
-    // Extra "jump" between scores 7 and 6: the laser accelerates through
-    // this range only, then stays shifted by +20% of the total travel for
-    // all closer scores so the step past the dashboard→wheel transition
-    // lands in the right spot.
-    var ACCEL_FROM = 0.60;   // yN at score 8/7 boundary
-    var ACCEL_TO   = 0.76;   // yN at score 6/5 boundary
-    var ACCEL_AMT  = 0.20;   // +20% of travel
-    var accT = (yN <= ACCEL_FROM) ? 0
-             : (yN >= ACCEL_TO)   ? 1
-             : (yN - ACCEL_FROM) / (ACCEL_TO - ACCEL_FROM);
-    accT = accT * accT * (3 - 2 * accT);   // smoothstep
-    lineY += travel * ACCEL_AMT * accT;
+    // Piecewise speed profile for the laser as it travels from score 15
+    // (far) to score 1 (near):
+    //   • 15 → 10 : very slow  (line barely moves)
+    //   • 10 → 7  : same slow pace
+    //   • 7  → 5  : sharp acceleration (big jump across the wheel)
+    //   • 5  → 1  : slows down again
+    // Each anchor is (yN, T) where T is the fraction of the total travel.
+    var SG_LASER_BREAKS = [
+      { yN: 0.00, T: 0.22 },   // score 15 → dashboard/windshield joint
+      { yN: 0.60, T: 0.36 },   // score 7 boundary (end of slow zone)
+      { yN: 0.82, T: 0.78 },   // score 5 boundary (end of fast zone)
+      { yN: 1.00, T: 0.95 }    // score 1 (slow tail, off-screen)
+    ];
+    var tY = Math.max(0, Math.min(1, yN));
+    var lineT = SG_LASER_BREAKS[SG_LASER_BREAKS.length - 1].T;
+    for (var bi = 1; bi < SG_LASER_BREAKS.length; bi++) {
+      var aB = SG_LASER_BREAKS[bi - 1], bB = SG_LASER_BREAKS[bi];
+      if (tY <= bB.yN) {
+        var k = (bB.yN > aB.yN) ? (tY - aB.yN) / (bB.yN - aB.yN) : 0;
+        lineT = aB.T + (bB.T - aB.T) * k;
+        break;
+      }
+    }
+    var lineY = horizonY + travel * lineT;
     var lineTClamped = Math.max(0, Math.min(1, lineT));
     var planeL   = vL;
     var planeR   = vR;
