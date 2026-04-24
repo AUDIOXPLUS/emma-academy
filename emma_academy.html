@@ -6672,9 +6672,8 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
     var extra    = (floorY - horizonY) * 0.25;   // headroom past the floor
     var lineY    = horizonY + (floorY - horizonY + extra) * lineT;
     var lineTClamped = Math.max(0, Math.min(1, lineT));
-    var planeHW  = (vR - vL) * 0.48 * (0.12 + 0.88 * lineTClamped);
-    var planeL   = mx - planeHW;
-    var planeR   = mx + planeHW;
+    var planeL   = vL;
+    var planeR   = vR;
     var coreA    = 0.30 + 0.45 * lineTClamped;
 
     var g = ctx.createLinearGradient(planeL, 0, planeR, 0);
