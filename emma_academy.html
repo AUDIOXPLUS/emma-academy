@@ -6656,31 +6656,21 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
   ctx.save();
 
   // Laser cut-plane on the dashboard: independent from the ball's Y.
-  // Visual anchors (fractions of the dashboard band sH):
-  //  - far end  = windshield/dashboard joint (top of the cruscotto hump)
-  //  - near end = well past the steering wheel (off-screen)
-  // The line sweeps between the two along the hyperbolic 1/z curve so
-  // small pointer travel near the far end still covers several scores.
-  //
-  // When the laser sits at depths farther than the steering wheel the
-  // wheel is in FRONT of it, so the central-left portion is occluded
-  // (a gap in the line). As soon as the laser passes the wheel the
-  // line becomes continuous again.
+  // The deepest reachable position (yN=0) is the windshield/dashboard
+  // joint — not the horizon. From there the line sweeps forward along
+  // the cruscotto, sliding past the steering-wheel area and finally
+  // past the bottom of the visible field for the very nearest scores.
   if (!isNone) {
-    var SG_LASER_Y_FAR  = 0.62;   // ~ dashboard/windshield junction
-    var SG_LASER_Y_NEAR = 1.18;   // ~ past the listener's body, off-screen
-    var SG_WHEEL_X_LEFT  = -0.62; // fraction of (vR-vC): left edge of wheel
-    var SG_WHEEL_X_RIGHT =  0.12; // fraction of (vR-vC): right edge of wheel
-    var SG_WHEEL_YN_PASS = 0.76;  // yN at which the laser passes the wheel
-
-    // Hyperbolic depth curve, then remap to the laser-specific Y band.
-    var lineT = (yN * SG_PERSP_K) > 0
-      ? (yN / (SG_PERSP_K + yN * (1 - SG_PERSP_K)))
-      : 0;
-    var lineYFrac = SG_LASER_Y_FAR + (SG_LASER_Y_NEAR - SG_LASER_Y_FAR) * lineT;
-    var lineY     = sT + sH * lineYFrac;
-
-    // Width scales with "how far forward" along the dashboard the laser is.
+    var horizonY = sT + sH * sg_eyeLevel;
+    var floorY   = sB;
+    // Anchor the laser's far end at the dashboard-begins depth (score 9
+    // boundary, yN ~0.46) instead of the horizon. Anything farther than
+    // that is "beyond the windshield" and pins to the same starting line.
+    var LASER_FAR_YN = 0.46;
+    var mappedYN = LASER_FAR_YN + (1 - LASER_FAR_YN) * Math.max(0, Math.min(1, yN));
+    var lineT    = mappedYN / (SG_PERSP_K + mappedYN * (1 - SG_PERSP_K));
+    var extra    = (floorY - horizonY) * 0.25;   // headroom past the floor
+    var lineY    = horizonY + (floorY - horizonY + extra) * lineT;
     var lineTClamped = Math.max(0, Math.min(1, lineT));
     var planeHW  = (vR - vL) * 0.48 * (0.12 + 0.88 * lineTClamped);
     var planeL   = mx - planeHW;
@@ -6694,35 +6684,18 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
     g.addColorStop(0.82, 'rgba(' + color + ',' + (coreA * 0.55).toFixed(3) + ')');
     g.addColorStop(1,    'rgba(' + color + ',0)');
 
-    // Steering-wheel occlusion: split the line into 1–2 segments around
-    // the wheel's X footprint whenever the laser is still behind it.
-    var segments = [ [planeL, planeR] ];
-    if (yN < SG_WHEEL_YN_PASS) {
-      var hwX = (vR - vC);
-      var wL  = Math.max(planeL, vC + SG_WHEEL_X_LEFT  * hwX);
-      var wR  = Math.min(planeR, vC + SG_WHEEL_X_RIGHT * hwX);
-      if (wR > wL) {
-        segments = [];
-        if (wL > planeL) segments.push([planeL, wL]);
-        if (wR < planeR) segments.push([wR, planeR]);
-      }
-    }
-
     ctx.save();
     ctx.beginPath();
-    ctx.rect(vL, sT, vR - vL, sH);   // clip to the scoring field
+    ctx.rect(vL, sT, vR - vL, sH);         // clip to the scoring field
     ctx.clip();
 
-    for (var si = 0; si < segments.length; si++) {
-      var sL = segments[si][0], sR = segments[si][1];
-      ctx.strokeStyle = g;
-      ctx.lineWidth = (3.5 + 3 * lineTClamped) * d;
-      ctx.globalAlpha = 0.35;
-      ctx.beginPath(); ctx.moveTo(sL, lineY); ctx.lineTo(sR, lineY); ctx.stroke();
-      ctx.globalAlpha = 1;
-      ctx.lineWidth = Math.max(1*d, 1.2*d + 0.4*d*lineTClamped);
-      ctx.beginPath(); ctx.moveTo(sL, lineY); ctx.lineTo(sR, lineY); ctx.stroke();
-    }
+    ctx.strokeStyle = g;
+    ctx.lineWidth = (3.5 + 3 * lineTClamped) * d;
+    ctx.globalAlpha = 0.35;
+    ctx.beginPath(); ctx.moveTo(planeL, lineY); ctx.lineTo(planeR, lineY); ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.lineWidth = Math.max(1*d, 1.2*d + 0.4*d*lineTClamped);
+    ctx.beginPath(); ctx.moveTo(planeL, lineY); ctx.lineTo(planeR, lineY); ctx.stroke();
 
     ctx.restore();
   }
