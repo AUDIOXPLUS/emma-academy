@@ -6231,36 +6231,47 @@ function sg_onPU(e) {
 // moving along a receding ground plane. Higher K = stronger compression
 // near the horizon (near-logarithmic feel per pixel of pointer travel).
 var SG_PERSP_K = 3.0;
+// The ball only traverses the top fraction of the dashboard band;
+// proximity is conveyed mainly by growing the marker, not by dropping
+// it toward the listener's body.
+var SG_PERSP_MAX_DESCENT = 0.32;
+
+// Screen Y where the closest ball (yN=1) is rendered.
+function sg_perspMaxY(sT, sH) {
+  var horizonY = sT + sH * sg_eyeLevel;
+  var floorY   = sT + sH;
+  return horizonY + (floorY - horizonY) * SG_PERSP_MAX_DESCENT;
+}
 
 // Forward perspective: score-space yN (0=far, 1=near) → screen Y.
 // Above the horizon is clamped to eye level so far instruments converge
-// AT the horizon line instead of floating above it.
+// AT the horizon line instead of floating above it. The ball stays in
+// the upper part of the dashboard — it does not drop toward the floor.
 function sg_yNToScreenY(yN, sT, sH) {
-  var sB = sT + sH;
   var horizonY = sT + sH * sg_eyeLevel;
-  var floorY   = sB;
-  if (floorY <= horizonY) return horizonY;
+  var maxY     = sg_perspMaxY(sT, sH);
+  if (maxY <= horizonY) return horizonY;
   var t = Math.max(0, Math.min(1, yN));
   var K = SG_PERSP_K;
   var screenT = t / (K + t * (1 - K));    // = t / (t + (1-t)*K)
-  return horizonY + (floorY - horizonY) * screenT;
+  return horizonY + (maxY - horizonY) * screenT;
 }
 
 // Inverse perspective: canvas Y (pointer) → yN. Tapping above the
-// horizon clamps to score 15. Inside the dashboard band the pointer
-// slides along the 1/z curve, so each pixel near the horizon represents
-// a large depth change and each pixel near the listener represents a
-// small one — the "logarithmic" feel of real-world distance perception.
+// horizon clamps to score 15, below the "near" band clamps to score 1.
+// Inside the band the pointer slides along the 1/z curve — each pixel
+// near the horizon represents a large depth change, each pixel near
+// the listener a small one (the "logarithmic" feel of distance).
 function sg_canvasYToNorm(yPx) {
   var d = window.devicePixelRatio || 1;
   var H = sg_canvas.height;
   var sT = (44 + 18) * d, sB = H - (60 + 18) * d, sH = sB - sT;
   if (sH <= 0) return null;
   var horizonY = sT + sH * sg_eyeLevel;
-  var floorY   = sB;
+  var maxY     = sg_perspMaxY(sT, sH);
   if (yPx <= horizonY) return 0;
-  if (yPx >= floorY)   return 1;
-  var t = (yPx - horizonY) / (floorY - horizonY);
+  if (yPx >= maxY)     return 1;
+  var t = (yPx - horizonY) / (maxY - horizonY);
   var K = SG_PERSP_K;
   return (t * K) / (t * K + (1 - t));     // inverse of the forward curve
 }
@@ -6636,8 +6647,10 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
   var my    = sg_yNToScreenY(yN, sT, sH);
   var mx    = vC;
 
-  // Perspective size: tiny speck at the horizon, large mass up close
-  var radius   = Math.max(2*d, (3 + 56 * sizeT) * d);
+  // Perspective size: a speck at the horizon, a large mass up close.
+  // Size carries most of the "approaching" feel now that the ball barely
+  // drops toward the listener.
+  var radius   = Math.max(2*d, (3 + 72 * sizeT) * d);
   var color    = isNone ? '180,180,190' : '0,229,204';
 
   ctx.save();
