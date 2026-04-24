@@ -6602,16 +6602,43 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
 
   ctx.save();
 
-  // Perspective shadow ellipse below the marker
-  var shY = my + radius * 0.95;
-  var shRx = radius * (1.0 + 0.9 * yN);
-  var shRy = radius * (0.22 + 0.18 * yN);
-  var shA  = isNone ? 0.18 : (0.18 + 0.32 * yN);
-  var shG = ctx.createRadialGradient(mx, shY, 0, mx, shY, shRx);
-  shG.addColorStop(0, 'rgba(0,0,0,' + shA + ')');
-  shG.addColorStop(1, 'rgba(0,0,0,0)');
+  // Shadow lying on the dashboard — flat, elongated along the surface
+  // (not a round blob). Farther from the listener (low yN) = narrower,
+  // fainter and tucked tight under the ball; closer = wider, darker,
+  // and cast slightly farther back along the perspective axis.
+  var shCx = mx;
+  var shCy = my + radius * 0.78 + radius * 0.25 * yN;
+  var shRx = radius * (1.30 + 1.40 * yN);
+  var shRy = radius * (0.14 + 0.12 * yN);
+  var shA  = isNone ? 0.14 : (0.22 + 0.34 * yN);
+  ctx.save();
+  ctx.translate(shCx, shCy);
+  ctx.scale(1, shRy / shRx);
+  var shG = ctx.createRadialGradient(0, 0, 0, 0, 0, shRx);
+  shG.addColorStop(0,    'rgba(0,0,0,' + shA.toFixed(3) + ')');
+  shG.addColorStop(0.55, 'rgba(0,0,0,' + (shA * 0.45).toFixed(3) + ')');
+  shG.addColorStop(1,    'rgba(0,0,0,0)');
   ctx.fillStyle = shG;
-  ctx.beginPath(); ctx.ellipse(mx, shY, shRx, shRy, 0, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(0, 0, shRx, 0, Math.PI*2); ctx.fill();
+  ctx.restore();
+
+  // Subtle contact-shadow smear that elongates back into depth (upward),
+  // stronger when the ball is near so the shadow "lies" along the dashboard.
+  if (!isNone) {
+    var smA  = 0.18 + 0.22 * yN;
+    var smRx = radius * (0.55 + 0.55 * yN);
+    var smRy = radius * (0.42 + 0.45 * yN);
+    var smCy = my + radius * 0.18 - radius * 0.35 * yN;
+    ctx.save();
+    ctx.translate(mx, smCy);
+    ctx.scale(smRx / smRy, 1);
+    var smG = ctx.createRadialGradient(0, 0, 0, 0, 0, smRy);
+    smG.addColorStop(0, 'rgba(0,0,0,' + smA.toFixed(3) + ')');
+    smG.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = smG;
+    ctx.beginPath(); ctx.arc(0, 0, smRy, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
 
   // Outer halo (grows with distance perception)
   var halo = ctx.createRadialGradient(mx, my, radius*0.5, mx, my, radius*2.2);
