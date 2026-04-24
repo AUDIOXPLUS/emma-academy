@@ -1852,6 +1852,10 @@ function ta_drawSpectrumBars(ctx, W, H, arr, proj) {
 }
 
 function ta_drawEQCurves(ctx, W, H, proj) {
+    // In edit mode the .edit-panel covers the lower ~70% of the card; confine
+    // the curve drawing to the top strip that stays visible.
+    const Hd = H * 0.30;
+    const cy = Hd / 2;
     const n = 200, freqs = new Float32Array(n);
     for (let i = 0; i < n; i++) freqs[i] = 20 * Math.pow(1000, i / (n - 1));
     const cols = ['#ff6b6b', '#ffd93d', '#6bcb77', '#4d96ff'];
@@ -1861,7 +1865,7 @@ function ta_drawEQCurves(ctx, W, H, proj) {
         ctx.strokeStyle = cols[b]; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.45;
         ctx.beginPath();
         for (let i = 0; i < n; i++) {
-            const x = ta_freqToX(freqs[i], W), y = H / 2 - (20 * Math.log10(m[i]) / 24) * (H / 2);
+            const x = ta_freqToX(freqs[i], W), y = cy - (20 * Math.log10(m[i]) / 24) * cy;
             i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
         }
         ctx.stroke(); ctx.globalAlpha = 1;
@@ -1870,13 +1874,13 @@ function ta_drawEQCurves(ctx, W, H, proj) {
     ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.globalAlpha = 0.8;
     ctx.beginPath();
     for (let i = 0; i < n; i++) {
-        const x = ta_freqToX(freqs[i], W), y = H / 2 - (tm[i] / 24) * (H / 2);
+        const x = ta_freqToX(freqs[i], W), y = cy - (tm[i] / 24) * cy;
         i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
     }
     ctx.stroke(); ctx.globalAlpha = 1;
     ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 1;
     ctx.setLineDash([4, 4]);
-    ctx.beginPath(); ctx.moveTo(0, H / 2); ctx.lineTo(W, H / 2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, cy); ctx.lineTo(W, cy); ctx.stroke();
     ctx.setLineDash([]);
 }
 
@@ -2100,13 +2104,20 @@ function ta_saveProject(proj, btn) {
         setTimeout(() => { btn.innerHTML = orig; btn.style.color = ''; }, 2000);
     }
 }
-function ta_toast(msg) {
+let ta_activeToast = null;
+function ta_toast(msg, ms) {
+    if (ta_activeToast) { ta_activeToast.remove(); ta_activeToast = null; }
     const t = document.createElement('div');
     t.textContent = msg;
     t.style.cssText = 'position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:99999;padding:10px 20px;border-radius:18px;font-size:13px;color:#0a0a14;background:#4ecdc4;box-shadow:0 8px 24px rgba(0,0,0,.6);white-space:nowrap;font-family:inherit;pointer-events:none;opacity:0;transition:opacity .2s;';
     document.body.appendChild(t);
+    ta_activeToast = t;
     requestAnimationFrame(() => { t.style.opacity = '1'; });
-    setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 250); }, 2800);
+    setTimeout(() => {
+        if (ta_activeToast !== t) return;
+        t.style.opacity = '0';
+        setTimeout(() => { t.remove(); if (ta_activeToast === t) ta_activeToast = null; }, 250);
+    }, ms || 2800);
 }
 async function ta_loadProjectFromFile(file) {
     try { const d = JSON.parse(await file.text()); await ta_createProjectFromData(d); }
@@ -2167,6 +2178,7 @@ const TA_PRESETS = [
 async function ta_loadPresets() {
     const emptyEl = document.getElementById('ta-emptyState');
     const origHTML = emptyEl.innerHTML;
+    ta_toast('Loading ' + TA_PRESETS.length + ' presets...', 10000);
     let loaded = 0;
     for (let i = 0; i < TA_PRESETS.length; i++) {
         emptyEl.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i><p>Loading preset ' + (i + 1) + ' of ' + TA_PRESETS.length + '...</p>';
@@ -2179,7 +2191,7 @@ async function ta_loadPresets() {
         } catch (e) { console.warn('[ta] preset failed:', TA_PRESETS[i], e); }
     }
     if (ta_projects.length === 0) emptyEl.innerHTML = origHTML;
-    if (loaded > 0) ta_toast(loaded + ' preset' + (loaded > 1 ? 's' : '') + ' loaded');
+    ta_toast(loaded > 0 ? (loaded + ' preset' + (loaded > 1 ? 's' : '') + ' loaded') : 'No presets loaded');
 }
 
 // ======================== LAZY INIT ========================
