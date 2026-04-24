@@ -2157,6 +2157,24 @@ function ta_formatTime(s) {
 }
 function ta_escapeHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
+// ======================== PRESETS ========================
+const TA_PRESETS = [
+    'tap-presets/13_Ocean_Drive.tap',
+    'tap-presets/14_One_Fine_Day.tap',
+    'tap-presets/15_Coming_Back_to_You.tap',
+    'tap-presets/16_Should_Have_Done_it_Like_This.tap'
+];
+async function ta_loadPresets() {
+    for (const url of TA_PRESETS) {
+        try {
+            const r = await fetch(url);
+            if (!r.ok) { console.warn('[ta] preset missing:', url, r.status); continue; }
+            const data = await r.json();
+            await ta_createProjectFromData(data);
+        } catch (e) { console.warn('[ta] preset failed:', url, e); }
+    }
+}
+
 // ======================== LAZY INIT ========================
 let ta_initialized = false;
 function ta_initIfNeeded() {
@@ -2173,6 +2191,8 @@ function ta_initIfNeeded() {
         for (const f of e.target.files) await ta_loadProjectFromFile(f);
         e.target.value = '';
     });
+
+    ta_loadPresets();
 
     document.getElementById('page-tonal').addEventListener('dragover', e => e.preventDefault());
     document.getElementById('page-tonal').addEventListener('drop', async e => {
