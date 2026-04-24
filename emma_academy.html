@@ -6656,24 +6656,23 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
   ctx.save();
 
   // Laser cut-plane on the dashboard: independent from the ball's Y.
-  // It starts glued to the windshield/dashboard joint (the horizon) and
-  // sweeps forward along the cruscotto as the ball gets closer, sliding
-  // past the steering wheel area and even past the bottom of the visible
-  // field for the very nearest scores. The line is ALWAYS on the
-  // dashboard plane — its position only tracks the depth, not the ball.
+  // The deepest reachable position (yN=0) is the windshield/dashboard
+  // joint — not the horizon. From there the line sweeps forward along
+  // the cruscotto, sliding past the steering-wheel area and finally
+  // past the bottom of the visible field for the very nearest scores.
   if (!isNone) {
     var horizonY = sT + sH * sg_eyeLevel;
     var floorY   = sB;
-    // Full hyperbolic perspective (no clamp) — line can slide past the
-    // scoring field floor to convey "beyond the steering wheel".
-    var lineT    = (yN * SG_PERSP_K) > 0
-      ? (yN / (SG_PERSP_K + yN * (1 - SG_PERSP_K)))
-      : 0;
+    // Anchor the laser's far end at the dashboard-begins depth (score 9
+    // boundary, yN ~0.46) instead of the horizon. Anything farther than
+    // that is "beyond the windshield" and pins to the same starting line.
+    var LASER_FAR_YN = 0.46;
+    var mappedYN = LASER_FAR_YN + (1 - LASER_FAR_YN) * Math.max(0, Math.min(1, yN));
+    var lineT    = mappedYN / (SG_PERSP_K + mappedYN * (1 - SG_PERSP_K));
     var extra    = (floorY - horizonY) * 0.25;   // headroom past the floor
     var lineY    = horizonY + (floorY - horizonY + extra) * lineT;
-    // Width scales with how far "forward" the line has swept.
     var lineTClamped = Math.max(0, Math.min(1, lineT));
-    var planeHW  = (vR - vL) * 0.48 * (0.08 + 0.92 * lineTClamped);
+    var planeHW  = (vR - vL) * 0.48 * (0.12 + 0.88 * lineTClamped);
     var planeL   = mx - planeHW;
     var planeR   = mx + planeHW;
     var coreA    = 0.30 + 0.45 * lineTClamped;
