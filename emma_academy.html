@@ -6675,7 +6675,8 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
     // Each anchor is (yN, T) where T is the fraction of the total travel.
     var SG_LASER_BREAKS = [
       { yN: 0.00, T: 0.22 },   // score 15 → dashboard/windshield joint
-      { yN: 0.60, T: 0.30 },   // score 7/8 boundary
+      { yN: 0.46, T: 0.29 },   // score 10 (where 9 used to be)
+      { yN: 0.60, T: 0.30 },   // score 7/8 boundary — 9 lands just before here
       { yN: 0.76, T: 0.50 },   // score 5/6 boundary
       { yN: 1.00, T: 0.90 }    // score 1
     ];
