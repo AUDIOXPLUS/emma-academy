@@ -1460,6 +1460,12 @@ class ta_Project {
             f.Q.value = b.q; f.gain.value = b.gain;
             return f;
         });
+        this.displayFilters = this.bands.map(b => {
+            const f = this.ctx.createBiquadFilter();
+            f.type = b.type; f.frequency.value = b.freq;
+            f.Q.value = b.q; f.gain.value = b.gain;
+            return f;
+        });
         this.filters[0].connect(this.filters[1]);
         this.filters[1].connect(this.filters[2]);
         this.filters[2].connect(this.filters[3]);
@@ -1495,11 +1501,11 @@ class ta_Project {
 
     setFilterParams(bi, p, v) {
         this.bands[bi][p] = v;
-        const f = this.filters[bi];
-        if (p === 'freq') f.frequency.value = v;
-        if (p === 'q') f.Q.value = v;
-        if (p === 'gain') f.gain.value = v;
-        if (p === 'type') f.type = v;
+        const f = this.filters[bi], df = this.displayFilters[bi];
+        if (p === 'freq') { f.frequency.value = v; df.frequency.value = v; }
+        if (p === 'q')    { f.Q.value = v;         df.Q.value = v; }
+        if (p === 'gain') { f.gain.value = v;      df.gain.value = v; }
+        if (p === 'type') { f.type = v;            df.type = v; }
     }
 
     setVolume(v) { this.gainNode.gain.value = v; }
@@ -1568,7 +1574,7 @@ class ta_Project {
         const mt = new Float32Array(freqs.length).fill(0);
         const tm = new Float32Array(freqs.length), tp = new Float32Array(freqs.length);
         for (let i = 0; i < 4; i++) {
-            this.filters[i].getFrequencyResponse(freqs, tm, tp);
+            this.displayFilters[i].getFrequencyResponse(freqs, tm, tp);
             for (let j = 0; j < freqs.length; j++) mt[j] += 20 * Math.log10(tm[j]);
         }
         return mt;
@@ -1852,20 +1858,16 @@ function ta_drawSpectrumBars(ctx, W, H, arr, proj) {
 }
 
 function ta_drawEQCurves(ctx, W, H, proj) {
-    // In edit mode the .edit-panel covers the lower ~70% of the card; confine
-    // the curve drawing to the top strip that stays visible.
-    const Hd = H * 0.30;
-    const cy = Hd / 2;
     const n = 200, freqs = new Float32Array(n);
     for (let i = 0; i < n; i++) freqs[i] = 20 * Math.pow(1000, i / (n - 1));
     const cols = ['#ff6b6b', '#ffd93d', '#6bcb77', '#4d96ff'];
     for (let b = 0; b < 4; b++) {
         const m = new Float32Array(n), p = new Float32Array(n);
-        proj.filters[b].getFrequencyResponse(freqs, m, p);
+        proj.displayFilters[b].getFrequencyResponse(freqs, m, p);
         ctx.strokeStyle = cols[b]; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.45;
         ctx.beginPath();
         for (let i = 0; i < n; i++) {
-            const x = ta_freqToX(freqs[i], W), y = cy - (20 * Math.log10(m[i]) / 24) * cy;
+            const x = ta_freqToX(freqs[i], W), y = H / 2 - (20 * Math.log10(m[i]) / 24) * (H / 2);
             i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
         }
         ctx.stroke(); ctx.globalAlpha = 1;
@@ -1874,13 +1876,13 @@ function ta_drawEQCurves(ctx, W, H, proj) {
     ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.globalAlpha = 0.8;
     ctx.beginPath();
     for (let i = 0; i < n; i++) {
-        const x = ta_freqToX(freqs[i], W), y = cy - (tm[i] / 24) * cy;
+        const x = ta_freqToX(freqs[i], W), y = H / 2 - (tm[i] / 24) * (H / 2);
         i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
     }
     ctx.stroke(); ctx.globalAlpha = 1;
     ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 1;
     ctx.setLineDash([4, 4]);
-    ctx.beginPath(); ctx.moveTo(0, cy); ctx.lineTo(W, cy); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, H / 2); ctx.lineTo(W, H / 2); ctx.stroke();
     ctx.setLineDash([]);
 }
 
