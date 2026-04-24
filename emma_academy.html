@@ -277,6 +277,13 @@ body.immersive #inst-picker,body.immersive #btn-add-wrap{opacity:0;pointer-event
 .tb-dd-onoff-btn { border-radius: 5px; padding: 2px 12px; font-size: 10px; font-weight: 700; cursor: pointer; border: 1px solid; font-family: inherit; transition: all .15s; }
 .tb-dd-onoff-btn.off { background: rgba(255,255,255,.05); color: #555; border-color: rgba(255,255,255,.1); }
 .tb-dd-onoff-btn.on  { background: rgba(0,229,204,.18); color: #00e5cc; border-color: rgba(0,229,204,.5); }
+/* Stage tool-mode segmented (Width/Height | Distance) */
+.sg-mode-seg { display: inline-flex; background: rgba(28,28,36,.9); border: 1px solid rgba(255,255,255,.1); border-radius: 8px; overflow: hidden; }
+#sg-topbar .sg-mode-btn { background: transparent; border: none; border-radius: 0; color: #888; padding: 5px 12px; font-size: 12px; font-weight: 600; }
+#sg-topbar .sg-mode-btn + .sg-mode-btn { border-left: 1px solid rgba(255,255,255,.1); }
+#sg-topbar .sg-mode-btn.active { color: #00e5cc; background: rgba(0,229,204,.14); }
+#sg-topbar #sg-btn-no-sound { background: rgba(255,255,255,.05); color: #bbb; border: 1px solid rgba(255,255,255,.15); padding: 5px 12px; font-size: 12px; }
+#sg-topbar #sg-btn-no-sound:hover { color: #fff; border-color: rgba(0,229,204,.4); }
 
 /* ===== TONAL ACCURACY PAGE ===== */
 #page-tonal { display: none; z-index: 1; position: fixed; inset: 0; overflow-y: auto; background: #0a0a14; }
@@ -1388,6 +1395,11 @@ body.immersive #inst-picker,body.immersive #btn-add-wrap{opacity:0;pointer-event
         <button class="tb-dd-reset" id="sg-dc-reset">&#8635; Reset</button>
       </div>
     </div>
+    <div class="sg-mode-seg" role="tablist" aria-label="Scoring tool">
+      <button class="sg-mode-btn active" id="sg-mode-draw" data-mode="draw">Width/Height</button>
+      <button class="sg-mode-btn" id="sg-mode-distance" data-mode="distance">Distance</button>
+    </div>
+    <button id="sg-btn-no-sound" style="display:none;">&#128263; No sound</button>
     <button class="help-btn" onclick="showHelp('stage')" title="Help">?</button>
     <span class="topbar-credit">...By Francesco Richichi</span>
   </div>
@@ -5852,10 +5864,15 @@ async function emma_saveConfiguredFile() {
 // =============================================
 
 var sg_state = {
-  mode: 'ready',    // ready / drawing
+  mode: 'ready',    // ready / drawing  (internal pointer state for Width/Height drawing)
   drawing: false,
   currentPts: [],
-  shapes: []        // [{points, cx, cy}]  — auto-saved on pen-up
+  shapes: [],       // [{points, cx, cy}]  — auto-saved on pen-up
+  // Distance tool (sez. 4.3.1): independent from Width/Height drawing
+  toolMode: 'draw',           // 'draw' | 'distance'
+  distanceY: null,            // Y normalizzata 0..1 sul scoring field (sT..sB); null = not set
+  distanceNoSound: false,     // esplicito "No sound" → score 0
+  distanceDragging: false
 };
 
 var sg_ax = null, sg_ab = null, sg_an = null, sg_src = null;
@@ -5954,6 +5971,32 @@ function sg_initIfNeeded() {
     sg_syncDashOnOff();
   })();
 
+  // Tool-mode segmented + No-sound (Distance tool, sez. 4.3.1)
+  (function(){
+    function setMode(m) {
+      sg_state.toolMode = (m === 'distance') ? 'distance' : 'draw';
+      // abort any in-progress shape when switching away from draw
+      sg_state.drawing = false;
+      sg_state.mode = 'ready';
+      sg_state.currentPts = [];
+      sg_state.distanceDragging = false;
+      sg_updateUI();
+      sg_drawFrame(sg_curT || 0);
+    }
+    var mDraw = document.getElementById('sg-mode-draw');
+    var mDist = document.getElementById('sg-mode-distance');
+    if (mDraw) mDraw.addEventListener('click', function(){ setMode('draw'); });
+    if (mDist) mDist.addEventListener('click', function(){ setMode('distance'); });
+    var noSoundBtn = document.getElementById('sg-btn-no-sound');
+    if (noSoundBtn) noSoundBtn.addEventListener('click', function(){
+      if (sg_state.toolMode !== 'distance') return;
+      sg_state.distanceNoSound = true;
+      sg_state.distanceY = null;
+      sg_updateUI();
+      sg_drawFrame(sg_curT || 0);
+    });
+  })();
+
   sg_updateUI();
   sg_drawFrame(0);
   // Auto-load embedded track if assigned, altrimenti fetch dal server
@@ -5990,6 +6033,7 @@ function sg_syncDashSliders() {
 function sg_loadFromData(data, fileName) {
   emma_showLoading('sg', 'Loading track...');
   sg_state.shapes = []; sg_state.mode = 'ready'; sg_state.currentPts = [];
+  sg_state.distanceY = null; sg_state.distanceNoSound = false; sg_state.distanceDragging = false;
   sg_trackName = (data.title || data.name || (fileName||'').replace(/\.json$/i, '') || 'Track 12');
   sg_I = (data.instruments || []).slice();
   if (data.dashboardOffsetY != null) sg_dashOffsetY = data.dashboardOffsetY;
@@ -6125,6 +6169,18 @@ function sg_interpKF(kfs, t) {
 // ── Drawing ──
 // Shapes are auto-saved on pen-up (no confirm step).
 function sg_onPD(e) {
+  if (sg_state.toolMode === 'distance') {
+    var p = sg_getCanvasPt(e);
+    var yN = sg_canvasYToNorm(p.y);
+    if (yN == null) return;
+    sg_state.distanceY = yN;
+    sg_state.distanceNoSound = false;
+    sg_state.distanceDragging = true;
+    sg_canvas.setPointerCapture(e.pointerId);
+    sg_drawFrame(sg_curT);
+    sg_updateUI();
+    return;
+  }
   if (sg_state.mode !== 'ready') return;
   sg_state.mode = 'drawing';
   sg_state.drawing = true;
@@ -6134,12 +6190,28 @@ function sg_onPD(e) {
 }
 
 function sg_onPM(e) {
+  if (sg_state.toolMode === 'distance') {
+    if (!sg_state.distanceDragging) return;
+    var p = sg_getCanvasPt(e);
+    var yN = sg_canvasYToNorm(p.y);
+    if (yN == null) return;
+    sg_state.distanceY = yN;
+    sg_drawFrame(sg_curT);
+    return;
+  }
   if (!sg_state.drawing) return;
   sg_state.currentPts.push(sg_getCanvasPt(e));
   sg_drawFrame(sg_curT);
 }
 
 function sg_onPU(e) {
+  if (sg_state.toolMode === 'distance') {
+    if (!sg_state.distanceDragging) return;
+    sg_state.distanceDragging = false;
+    sg_drawFrame(sg_curT);
+    sg_updateUI();
+    return;
+  }
   if (!sg_state.drawing) return;
   sg_state.drawing = false;
   sg_state.mode = 'ready';
@@ -6153,6 +6225,14 @@ function sg_onPU(e) {
   sg_state.currentPts = [];
   sg_drawFrame(sg_curT);
   sg_updateUI();
+}
+
+function sg_canvasYToNorm(yPx) {
+  var d = window.devicePixelRatio || 1;
+  var H = sg_canvas.height;
+  var sT = (44 + 18) * d, sB = H - (60 + 18) * d, sH = sB - sT;
+  if (sH <= 0) return null;
+  return Math.max(0, Math.min(1, (yPx - sT) / sH));
 }
 
 function sg_getCanvasPt(e) {
@@ -6203,45 +6283,100 @@ function sg_panScore(pan) {
   return 0;
 }
 
+// ── Distance (4.3.1) — Y-normalized thresholds (0=top/windshield, 1=bottom/behind) ──
+// Y upper-bound per score; scanned top-down. Anything below the last threshold is score 1.
+var SG_DISTANCE_Y      = [0.06, 0.15, 0.24, 0.32, 0.39, 0.46, 0.54, 0.60, 0.68, 0.76, 0.82, 0.87, 0.92, 0.97];
+var SG_DISTANCE_SCORES = [  15,   14,   13,   12,   11,   10,    9,    8,    7,    6,    5,    4,    3,    2];
+// Primary landmark labels (only a subset shown on the guide)
+var SG_DISTANCE_LABELS = {
+  15: 'over windshield',
+  13: 'windshield',
+  9:  'dashboard',
+  6:  'steering wheel',
+  3:  'face / chest',
+  1:  'behind listener'
+};
+
+function sg_yToDistanceScore(yNorm) {
+  if (yNorm == null) return null;
+  var y = Math.max(0, Math.min(1, yNorm));
+  for (var i = 0; i < SG_DISTANCE_Y.length; i++) {
+    if (y <= SG_DISTANCE_Y[i]) return SG_DISTANCE_SCORES[i];
+  }
+  return 1;
+}
+
+function sg_distanceLabel(score) {
+  return SG_DISTANCE_LABELS[score] || '';
+}
+
 function sg_computeScores() {
   var shapes = sg_state.shapes;
-  if (!shapes.length) return null;
+  var hasShapes = shapes.length > 0;
+  var hasDistance = (sg_state.distanceY != null) || sg_state.distanceNoSound;
+  if (!hasShapes && !hasDistance) return null;
   var dpr = window.devicePixelRatio || 1;
   var W = sg_canvas.width, H = sg_canvas.height;
   var vL = 34*dpr, vR = W - 34*dpr, vC = (vL + vR) / 2;
   var sT = (44 + 18)*dpr, sB = H - (60 + 18)*dpr, sH = sB - sT;
   var eyeY = sT + sH * sg_eyeLevel; // eye level (adjustable)
 
-  // Find leftmost and rightmost shape centers
-  var leftmost  = shapes.reduce(function(a, b){ return a.cx < b.cx ? a : b; });
-  var rightmost = shapes.reduce(function(a, b){ return a.cx > b.cx ? a : b; });
+  var leftPan = null, rightPan = null, leftScore = null, rightScore = null;
+  var widthTotal = null, notAtEyeCount = null, heightScore = null;
+  var shapeOut = [];
 
-  // Pan values (0 = center, 1 = full edge)
-  var panL = Math.min(1, Math.max(0, (vC - leftmost.cx)  / (vC - vL)));
-  var panR = Math.min(1, Math.max(0, (rightmost.cx - vC) / (vR - vC)));
+  if (hasShapes) {
+    // Find leftmost and rightmost shape centers
+    var leftmost  = shapes.reduce(function(a, b){ return a.cx < b.cx ? a : b; });
+    var rightmost = shapes.reduce(function(a, b){ return a.cx > b.cx ? a : b; });
 
-  var leftScore  = sg_panScore(panL);
-  var rightScore = sg_panScore(panR);
-  var widthTotal = Math.min(15, leftScore + rightScore);   // 0–15
+    // Pan values (0 = center, 1 = full edge)
+    leftPan  = Math.min(1, Math.max(0, (vC - leftmost.cx)  / (vC - vL)));
+    rightPan = Math.min(1, Math.max(0, (rightmost.cx - vC) / (vR - vC)));
 
-  // Height: count shapes NOT at eye level
-  var notAtEye = shapes.filter(function(s) {
-    return Math.abs(s.cy - eyeY) > SG_EYE_TOLERANCE * sH;
-  });
-  var heightScore = Math.max(0, 15 - notAtEye.length); // 0–15
+    leftScore  = sg_panScore(leftPan);
+    rightScore = sg_panScore(rightPan);
+    widthTotal = Math.min(15, leftScore + rightScore);   // 0–15
+
+    // Height: count shapes NOT at eye level
+    var notAtEye = shapes.filter(function(s) {
+      return Math.abs(s.cy - eyeY) > SG_EYE_TOLERANCE * sH;
+    });
+    notAtEyeCount = notAtEye.length;
+    heightScore = Math.max(0, 15 - notAtEyeCount); // 0–15
+
+    shapeOut = shapes.map(function(s){
+      return { cx: s.cx, cy: s.cy, atEye: Math.abs(s.cy - eyeY) <= SG_EYE_TOLERANCE * sH };
+    });
+  }
+
+  // Distance (4.3.1)
+  var distanceScore = null, distanceLabel = null;
+  if (sg_state.distanceNoSound) {
+    distanceScore = 0; distanceLabel = 'No sound';
+  } else if (sg_state.distanceY != null) {
+    distanceScore = sg_yToDistanceScore(sg_state.distanceY);
+    distanceLabel = sg_distanceLabel(distanceScore) || null;
+  }
+
+  var total = (widthTotal || 0) + (heightScore || 0) + (distanceScore || 0);
 
   return {
-    leftPan: panL, rightPan: panR,
+    leftPan: leftPan, rightPan: rightPan,
     leftScore: leftScore, rightScore: rightScore,
     widthTotal: widthTotal,
-    notAtEyeCount: notAtEye.length,
+    notAtEyeCount: notAtEyeCount,
     heightScore: heightScore,
-    total: widthTotal + heightScore,
-    maxTotal: 30,   // 15 + 15
+    distanceScore: distanceScore,
+    distanceLabel: distanceLabel,
+    distanceY: sg_state.distanceY,
+    distanceNoSound: !!sg_state.distanceNoSound,
+    total: total,
+    maxTotal: 45,   // 15 (width) + 15 (height) + 15 (distance)
+    hasShapes: hasShapes,
+    hasDistance: hasDistance,
     eyeY: eyeY,
-    shapes: shapes.map(function(s){
-      return { cx: s.cx, cy: s.cy, atEye: Math.abs(s.cy - eyeY) <= SG_EYE_TOLERANCE * sH };
-    })
+    shapes: shapeOut
   };
 }
 
@@ -6285,6 +6420,11 @@ function sg_drawFrame(t) {
   // ── Virtual dashboard overlay (togglabile) ──
   if (sg_dashOverlay) {
     sg_drawDashboard(ctx, W, H, vL, vR, vC, sT, sB, d);
+  }
+
+  // ── Distance tool overlay (4.3.1) ──
+  if (sg_state.toolMode === 'distance') {
+    sg_drawDistanceGuide(ctx, W, H, vL, vR, vC, sT, sB, d);
   }
 
   // Eye level line
@@ -6392,6 +6532,127 @@ function sg_drawFrame(t) {
     for (var pi2 = 1; pi2 < pts.length; pi2++) ctx.lineTo(pts[pi2].x, pts[pi2].y);
     ctx.stroke();
   }
+
+  // Distance marker (drawn last so it sits on top)
+  if (sg_state.toolMode === 'distance' && (sg_state.distanceY != null || sg_state.distanceNoSound)) {
+    sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d);
+  }
+}
+
+// ── Distance (4.3.1): vertical landmark guide + listener marker with perspective shadow ──
+function sg_drawDistanceGuide(ctx, W, H, vL, vR, vC, sT, sB, d) {
+  var sH = sB - sT;
+  var gx = vL + 10*d;                          // guida appena dentro il bordo sinistro
+  ctx.save();
+  ctx.strokeStyle = 'rgba(0,229,204,.35)';
+  ctx.lineWidth = 1.2*d; ctx.setLineDash([]);
+  ctx.beginPath(); ctx.moveTo(gx, sT); ctx.lineTo(gx, sB); ctx.stroke();
+
+  // Tick marks: uno per ogni score 1..15 al punto "rappresentativo" (bordo inferiore del suo range)
+  // Score k mappato alla Y upper-bound del range (SG_DISTANCE_Y[14-k+1]) — per uniformità uso i boundary.
+  var ticks = [];
+  for (var i = 0; i < SG_DISTANCE_Y.length; i++) {
+    ticks.push({ score: SG_DISTANCE_SCORES[i], y: SG_DISTANCE_Y[i] });
+  }
+  ticks.push({ score: 1, y: 1.0 });
+
+  ctx.font = (9*d) + 'px JetBrains Mono,monospace';
+  ticks.forEach(function(tk) {
+    var ty = sT + sH * tk.y;
+    var primary = !!SG_DISTANCE_LABELS[tk.score];
+    var tlen = primary ? 10*d : 5*d;
+    ctx.strokeStyle = primary ? 'rgba(0,229,204,.75)' : 'rgba(0,229,204,.28)';
+    ctx.lineWidth = primary ? 1.5*d : 1*d;
+    ctx.beginPath(); ctx.moveTo(gx, ty); ctx.lineTo(gx + tlen, ty); ctx.stroke();
+
+    if (primary) {
+      ctx.fillStyle = 'rgba(0,229,204,.85)';
+      ctx.textAlign = 'left';
+      ctx.fillText(tk.score + ' · ' + SG_DISTANCE_LABELS[tk.score], gx + tlen + 4*d, ty + 3*d);
+    }
+  });
+
+  // Header
+  ctx.font = 'bold ' + (9*d) + 'px JetBrains Mono,monospace';
+  ctx.fillStyle = 'rgba(0,229,204,.75)'; ctx.textAlign = 'left';
+  ctx.fillText('DISTANCE', gx - 2*d, sT - 10*d);
+  ctx.restore();
+}
+
+function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
+  var sH = sB - sT;
+  var isNone = !!sg_state.distanceNoSound;
+  var yN = isNone ? 0.97 : sg_state.distanceY;
+  if (yN == null) return;
+  var my = sT + sH * yN;
+  var mx = vC;
+  var score = isNone ? 0 : sg_yToDistanceScore(yN);
+  var label = isNone ? 'No sound' : sg_distanceLabel(score);
+
+  // Radius: closer (higher yN) = larger
+  var radius = (12 + 14 * yN) * d;
+  var color  = isNone ? '180,180,190' : '0,229,204';
+
+  ctx.save();
+
+  // Perspective shadow ellipse below the marker
+  var shY = my + radius * 0.9;
+  var shRx = radius * (1.1 + 0.7 * yN);
+  var shRy = radius * (0.28 + 0.15 * yN);
+  var shA  = isNone ? 0.18 : (0.18 + 0.28 * yN);
+  var shG = ctx.createRadialGradient(mx, shY, 0, mx, shY, shRx);
+  shG.addColorStop(0, 'rgba(0,0,0,' + shA + ')');
+  shG.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = shG;
+  ctx.beginPath(); ctx.ellipse(mx, shY, shRx, shRy, 0, 0, Math.PI*2); ctx.fill();
+
+  // Outer halo
+  var halo = ctx.createRadialGradient(mx, my, radius*0.5, mx, my, radius*2.2);
+  halo.addColorStop(0, 'rgba(' + color + ',' + (isNone ? 0.15 : 0.28) + ')');
+  halo.addColorStop(1, 'rgba(' + color + ',0)');
+  ctx.fillStyle = halo;
+  ctx.beginPath(); ctx.arc(mx, my, radius*2.2, 0, Math.PI*2); ctx.fill();
+
+  // Marker body
+  var body = ctx.createRadialGradient(mx - radius*0.3, my - radius*0.3, 0, mx, my, radius);
+  body.addColorStop(0, 'rgba(' + color + ',' + (isNone ? 0.55 : 0.85) + ')');
+  body.addColorStop(1, 'rgba(' + color + ',' + (isNone ? 0.25 : 0.45) + ')');
+  ctx.fillStyle = body;
+  ctx.beginPath(); ctx.arc(mx, my, radius, 0, Math.PI*2); ctx.fill();
+
+  // Ring
+  ctx.strokeStyle = 'rgba(' + color + ',' + (isNone ? 0.6 : 0.95) + ')';
+  ctx.lineWidth = 2*d;
+  ctx.beginPath(); ctx.arc(mx, my, radius, 0, Math.PI*2); ctx.stroke();
+
+  // Crosshair
+  ctx.strokeStyle = 'rgba(255,255,255,.85)';
+  ctx.lineWidth = 1.2*d;
+  ctx.beginPath();
+  ctx.moveTo(mx - radius*0.55, my); ctx.lineTo(mx + radius*0.55, my);
+  ctx.moveTo(mx, my - radius*0.55); ctx.lineTo(mx, my + radius*0.55);
+  ctx.stroke();
+
+  // Badge
+  var badge = 'Distance: ' + score + ' / 15';
+  if (label) badge += '  (' + label + ')';
+  ctx.font = 'bold ' + (11*d) + 'px JetBrains Mono,monospace';
+  ctx.textAlign = 'center';
+  var tw = ctx.measureText(badge).width;
+  var bx = mx, by = my - radius - 10*d;
+  var padX = 8*d, padY = 4*d;
+  ctx.fillStyle = 'rgba(0,0,0,.72)';
+  ctx.strokeStyle = 'rgba(' + color + ',.55)';
+  ctx.lineWidth = 1*d;
+  var rw = tw + padX*2, rh = 16*d + padY;
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(bx - rw/2, by - rh, rw, rh, 6*d);
+  else ctx.rect(bx - rw/2, by - rh, rw, rh);
+  ctx.fill(); ctx.stroke();
+  ctx.fillStyle = 'rgba(' + color + ',1)';
+  ctx.fillText(badge, bx, by - padY - 2*d);
+
+  ctx.restore();
 }
 
 // ── Virtual Dashboard Overlay ──
@@ -6482,6 +6743,8 @@ function sg_drawDashboard(ctx, W, H, vL, vR, vC, sT, sB, d, showZones) {
 function sg_updateUI() {
   var n = sg_state.shapes.length;
   var mode = sg_state.mode;
+  var isDistance = sg_state.toolMode === 'distance';
+  var hasDistance = (sg_state.distanceY != null) || sg_state.distanceNoSound;
   var elTrack = document.getElementById('sg-indicator-track');
   var elInst  = document.getElementById('sg-indicator-inst');
   var elHint  = document.getElementById('sg-indicator-hint');
@@ -6501,6 +6764,20 @@ function sg_updateUI() {
     elInst.textContent = sg_trackName ? 'Audio not available in project' : 'click open to select a project';
     elInst.style.color = '#888';
     elHint.textContent = '';
+  } else if (isDistance) {
+    if (sg_state.distanceNoSound) {
+      elInst.textContent = '\u25c6 Distance: 0 / 15 (No sound)'; elInst.style.color = '#bbb';
+      elHint.textContent = 'Tap on the dashboard to set a distance';
+    } else if (sg_state.distanceY != null) {
+      var sc = sg_yToDistanceScore(sg_state.distanceY);
+      var lb = sg_distanceLabel(sc);
+      elInst.textContent = '\u25c6 Distance: ' + sc + ' / 15' + (lb ? ' \u2014 ' + lb : '');
+      elInst.style.color = '#00e5cc';
+      elHint.textContent = 'Drag the marker to adjust';
+    } else {
+      elInst.textContent = '\u25c6 Place the nearest sound'; elInst.style.color = '#00e5cc';
+      elHint.textContent = 'Tap where you hear the closest instrument (4.3.1)';
+    }
   } else if (mode === 'drawing') {
     elInst.textContent = '\u25c6 Drawing...'; elInst.style.color = '#ff8844';
     elHint.textContent = 'Release to save the shape';
@@ -6513,11 +6790,21 @@ function sg_updateUI() {
     elHint.textContent = 'Keep drawing or press Scoresheet';
   }
 
-  sg_canvas.style.cursor = (mode === 'drawing') ? 'crosshair' : 'crosshair';
+  sg_canvas.style.cursor = 'crosshair';
 
-  document.getElementById('sg-btn-clear-last').style.display = n > 0 ? 'inline-block' : 'none';
-  document.getElementById('sg-btn-clear-all').style.display  = n > 1 ? 'inline-block' : 'none';
-  document.getElementById('sg-btn-score').style.display      = n > 0 ? 'inline-block' : 'none';
+  document.getElementById('sg-btn-clear-last').style.display = (!isDistance && n > 0) ? 'inline-block' : 'none';
+  document.getElementById('sg-btn-clear-all').style.display  = (!isDistance && n > 1) ? 'inline-block' : 'none';
+  document.getElementById('sg-btn-score').style.display      = (n > 0 || hasDistance) ? 'inline-block' : 'none';
+
+  // Topbar: segmented state + "No sound" visibility
+  var mDraw = document.getElementById('sg-mode-draw');
+  var mDist = document.getElementById('sg-mode-distance');
+  if (mDraw && mDist) {
+    mDraw.classList.toggle('active', !isDistance);
+    mDist.classList.toggle('active',  isDistance);
+  }
+  var noSoundBtn = document.getElementById('sg-btn-no-sound');
+  if (noSoundBtn) noSoundBtn.style.display = isDistance ? 'inline-block' : 'none';
 }
 
 // ── Scoresheet ──
@@ -6537,19 +6824,46 @@ function sg_showScoresheet() {
     html += '</thead><tbody>';
 
     // Width row
-    var wCls = result.widthTotal >= 10 ? 'sc-score-1' : 'sc-score-0';
-    html += '<tr><td style="color:#00e5cc;font-weight:600">Width</td>';
-    html += '<td style="color:#888">' + result.leftScore + ' (L) + ' + result.rightScore + ' (R)</td>';
-    html += '<td class="' + wCls + '">' + result.widthTotal + ' / 15</td></tr>';
+    if (result.hasShapes) {
+      var wCls = result.widthTotal >= 10 ? 'sc-score-1' : 'sc-score-0';
+      html += '<tr><td style="color:#00e5cc;font-weight:600">Width</td>';
+      html += '<td style="color:#888">' + result.leftScore + ' (L) + ' + result.rightScore + ' (R)</td>';
+      html += '<td class="' + wCls + '">' + result.widthTotal + ' / 15</td></tr>';
+    } else {
+      html += '<tr><td style="color:#00e5cc;font-weight:600">Width</td>';
+      html += '<td style="color:#666">Not evaluated</td>';
+      html += '<td style="color:#666">&mdash; / 15</td></tr>';
+    }
 
     // Height row
-    var hCls = result.heightScore >= 12 ? 'sc-score-1' : 'sc-score-0';
-    var eyeTxt = result.notAtEyeCount === 0
-      ? 'all instruments at eye level'
-      : result.notAtEyeCount + ' instrument' + (result.notAtEyeCount === 1 ? '' : 's') + ' outside eye level';
-    html += '<tr><td style="color:#00e5cc;font-weight:600">Height</td>';
-    html += '<td style="color:#888">' + eyeTxt + '</td>';
-    html += '<td class="' + hCls + '">' + result.heightScore + ' / 15</td></tr>';
+    if (result.hasShapes) {
+      var hCls = result.heightScore >= 12 ? 'sc-score-1' : 'sc-score-0';
+      var eyeTxt = result.notAtEyeCount === 0
+        ? 'all instruments at eye level'
+        : result.notAtEyeCount + ' instrument' + (result.notAtEyeCount === 1 ? '' : 's') + ' outside eye level';
+      html += '<tr><td style="color:#00e5cc;font-weight:600">Height</td>';
+      html += '<td style="color:#888">' + eyeTxt + '</td>';
+      html += '<td class="' + hCls + '">' + result.heightScore + ' / 15</td></tr>';
+    } else {
+      html += '<tr><td style="color:#00e5cc;font-weight:600">Height</td>';
+      html += '<td style="color:#666">Not evaluated</td>';
+      html += '<td style="color:#666">&mdash; / 15</td></tr>';
+    }
+
+    // Distance row (sez. 4.3.1)
+    if (result.hasDistance) {
+      var dCls = result.distanceScore >= 10 ? 'sc-score-1' : 'sc-score-0';
+      var dTxt = result.distanceNoSound
+        ? 'No sound perceived'
+        : ('nearest sound near ' + (result.distanceLabel || 'listener'));
+      html += '<tr><td style="color:#00e5cc;font-weight:600">Distance</td>';
+      html += '<td style="color:#888">' + dTxt + '</td>';
+      html += '<td class="' + dCls + '">' + result.distanceScore + ' / 15</td></tr>';
+    } else {
+      html += '<tr><td style="color:#00e5cc;font-weight:600">Distance</td>';
+      html += '<td style="color:#666">Not evaluated</td>';
+      html += '<td style="color:#666">&mdash; / 15</td></tr>';
+    }
 
     html += '</tbody><tfoot>';
     html += '<tr class="sc-sheet-total"><td colspan="2">TOTAL</td><td>' + result.total + ' / ' + result.maxTotal + '</td></tr>';
@@ -6560,6 +6874,7 @@ function sg_showScoresheet() {
     html += 'The leftmost and rightmost shapes define the score. Enable the Dashboard overlay for visual reference.<br>';
     html += '<b style="color:#888">Height (4.3.3) — 0–15 pts:</b> Start at 15 pts, &minus;1 for each instrument NOT at eye level.<br>';
     html += 'All instruments (static and moving) must be at eye level.<br>';
+    html += '<b style="color:#888">Distance (4.3.1) \u2014 0\u201315 pts:</b> Nearest sound at Center Position &mdash; over windshield=15, windshield=13, dashboard=9, steering wheel=6, face/chest=3, behind=1, no sound=0.<br>';
     html += '<span style="color:#ff8844">\u26a0 Zone thresholds estimated from EMMA 2026 rulebook Track 12 diagram &mdash; calibrate with Dashboard overlay</span>';
     html += '</div>';
   }
@@ -6576,25 +6891,46 @@ function sg_showScoresheet() {
 
 function sg_saveScoresheet() {
   var result = sg_computeScores();
-  if (!result) { alert('No shapes drawn yet.'); return; }
+  if (!result) { alert('Nothing to score yet.'); return; }
 
-  var wCls = result.widthTotal >= 10 ? 's1' : 's0';
-  var hCls = result.heightScore >= 12 ? 's1' : 's0';
-  var eyeTxt = result.notAtEyeCount === 0
-    ? 'All instruments at eye level'
-    : result.notAtEyeCount + ' instrument' + (result.notAtEyeCount === 1 ? '' : 's') + ' outside eye level';
+  var widthRow, heightRow, distanceRow;
+
+  if (result.hasShapes) {
+    var wCls = result.widthTotal >= 10 ? 's1' : 's0';
+    widthRow  = '<tr><td><b>Width</b></td><td>'+result.leftScore+' (L) + '+result.rightScore+' (R)</td><td class="'+wCls+'">'+result.widthTotal+' / 15</td></tr>';
+    var hCls = result.heightScore >= 12 ? 's1' : 's0';
+    var eyeTxt = result.notAtEyeCount === 0
+      ? 'All instruments at eye level'
+      : result.notAtEyeCount + ' instrument' + (result.notAtEyeCount === 1 ? '' : 's') + ' outside eye level';
+    heightRow = '<tr><td><b>Height</b></td><td>'+eyeTxt+'</td><td class="'+hCls+'">'+result.heightScore+' / 15</td></tr>';
+  } else {
+    widthRow  = '<tr><td><b>Width</b></td><td>Not evaluated</td><td>&mdash; / 15</td></tr>';
+    heightRow = '<tr><td><b>Height</b></td><td>Not evaluated</td><td>&mdash; / 15</td></tr>';
+  }
+
+  if (result.hasDistance) {
+    var dCls = result.distanceScore >= 10 ? 's1' : 's0';
+    var dTxt = result.distanceNoSound
+      ? 'No sound perceived'
+      : ('Nearest sound near ' + (result.distanceLabel || 'listener'));
+    distanceRow = '<tr><td><b>Distance</b></td><td>'+dTxt+'</td><td class="'+dCls+'">'+result.distanceScore+' / 15</td></tr>';
+  } else {
+    distanceRow = '<tr><td><b>Distance</b></td><td>Not evaluated</td><td>&mdash; / 15</td></tr>';
+  }
 
   var tbl = '<table>'
     + '<thead><tr><th>Parameter</th><th>Detail</th><th>Score</th></tr></thead>'
     + '<tbody>'
-    + '<tr><td><b>Width</b></td><td>'+result.leftScore+' (L) + '+result.rightScore+' (R)</td><td class="'+wCls+'">'+result.widthTotal+' / 15</td></tr>'
-    + '<tr><td><b>Height</b></td><td>'+eyeTxt+'</td><td class="'+hCls+'">'+result.heightScore+' / 15</td></tr>'
+    + widthRow
+    + heightRow
+    + distanceRow
     + '</tbody>'
     + '<tfoot><tr class="tot"><td colspan="3">TOTAL &nbsp; '+result.total+' / '+result.maxTotal+' pts</td></tr></tfoot>'
     + '</table>';
 
   var notes = '<b>Width (4.3.2) &mdash; 0&ndash;15 pts:</b> Left + Right, 0&ndash;7.5 pts each.<br>'
     + '<b>Height (4.3.3) &mdash; 0&ndash;15 pts:</b> Start at 15 pts, &minus;1 for each instrument NOT at eye level.<br>'
+    + '<b>Distance (4.3.1) &mdash; 0&ndash;15 pts:</b> Nearest sound at Center Position &mdash; over windshield=15, windshield=13, dashboard=9, steering wheel=6, face/chest=3, behind=1, no sound=0.<br>'
     + '&#9888; Zone thresholds estimated from EMMA 2026 rulebook Track 12 diagram &mdash; calibrate with Dashboard overlay.';
 
   // Temporarily ensure dashboard is ON so it appears in the screenshot
