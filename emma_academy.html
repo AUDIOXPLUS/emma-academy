@@ -6670,7 +6670,21 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
     var mappedYN = LASER_FAR_YN + (1 - LASER_FAR_YN) * Math.max(0, Math.min(1, yN));
     var lineT    = mappedYN / (SG_PERSP_K + mappedYN * (1 - SG_PERSP_K));
     var extra    = (floorY - horizonY) * 0.25;   // headroom past the floor
-    var lineY    = horizonY + (floorY - horizonY + extra) * lineT;
+    var travel   = (floorY - horizonY) + extra;
+    var lineY    = horizonY + travel * lineT;
+
+    // Extra "jump" between scores 7 and 6: the laser accelerates through
+    // this range only, then stays shifted by +20% of the total travel for
+    // all closer scores so the step past the dashboard→wheel transition
+    // lands in the right spot.
+    var ACCEL_FROM = 0.60;   // yN at score 8/7 boundary
+    var ACCEL_TO   = 0.76;   // yN at score 6/5 boundary
+    var ACCEL_AMT  = 0.20;   // +20% of travel
+    var accT = (yN <= ACCEL_FROM) ? 0
+             : (yN >= ACCEL_TO)   ? 1
+             : (yN - ACCEL_FROM) / (ACCEL_TO - ACCEL_FROM);
+    accT = accT * accT * (3 - 2 * accT);   // smoothstep
+    lineY += travel * ACCEL_AMT * accT;
     var lineTClamped = Math.max(0, Math.min(1, lineT));
     var planeL   = vL;
     var planeR   = vR;
