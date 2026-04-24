@@ -6655,6 +6655,34 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
 
   ctx.save();
 
+  // Depth-plane slice on the dashboard: a horizontal line at the ball's
+  // depth that widens with perspective — narrow near the horizon, full
+  // width when close. Gives a "cut plane" reference along the cruscotto.
+  if (!isNone) {
+    var horizonY = sT + sH * sg_eyeLevel;
+    var maxY     = sg_perspMaxY(sT, sH);
+    var dashT    = (maxY > horizonY) ? Math.max(0, Math.min(1, (my - horizonY) / (maxY - horizonY))) : 0;
+    var planeHW  = (vR - vL) * 0.48 * (0.10 + 0.90 * dashT);
+    var planeL   = mx - planeHW;
+    var planeR   = mx + planeHW;
+    var coreA    = 0.30 + 0.45 * dashT;
+    var g = ctx.createLinearGradient(planeL, 0, planeR, 0);
+    g.addColorStop(0,    'rgba(' + color + ',0)');
+    g.addColorStop(0.18, 'rgba(' + color + ',' + (coreA * 0.55).toFixed(3) + ')');
+    g.addColorStop(0.50, 'rgba(' + color + ',' + coreA.toFixed(3) + ')');
+    g.addColorStop(0.82, 'rgba(' + color + ',' + (coreA * 0.55).toFixed(3) + ')');
+    g.addColorStop(1,    'rgba(' + color + ',0)');
+    // Soft glow underlay
+    ctx.strokeStyle = g;
+    ctx.lineWidth = (3.5 + 3*dashT) * d;
+    ctx.globalAlpha = 0.35;
+    ctx.beginPath(); ctx.moveTo(planeL, my); ctx.lineTo(planeR, my); ctx.stroke();
+    ctx.globalAlpha = 1;
+    // Crisp core line
+    ctx.lineWidth = Math.max(1*d, 1.2*d + 0.4*d*dashT);
+    ctx.beginPath(); ctx.moveTo(planeL, my); ctx.lineTo(planeR, my); ctx.stroke();
+  }
+
   // Shadow lying on the dashboard — flat, elongated along the surface
   // (not a round blob). Farther from the listener = narrower, fainter
   // and tucked tight under the ball; closer = wider, darker, and cast
