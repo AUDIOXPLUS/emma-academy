@@ -6287,13 +6287,22 @@ function sg_panScore(pan) {
 // Y upper-bound per score; scanned top-down. Anything below the last threshold is score 1.
 var SG_DISTANCE_Y      = [0.06, 0.15, 0.24, 0.32, 0.39, 0.46, 0.54, 0.60, 0.68, 0.76, 0.82, 0.87, 0.92, 0.97];
 var SG_DISTANCE_SCORES = [  15,   14,   13,   12,   11,   10,    9,    8,    7,    6,    5,    4,    3,    2];
-// Primary landmark labels (only a subset shown on the guide)
+// Per-score descriptions (shown under the marker as it moves)
 var SG_DISTANCE_LABELS = {
   15: 'over windshield',
+  14: 'top of windshield',
   13: 'windshield',
+  12: 'dashboard → windshield',
+  11: 'dashboard → windshield',
+  10: 'dashboard → windshield',
   9:  'dashboard',
+  8:  'wheel → dashboard',
+  7:  'wheel → dashboard',
   6:  'steering wheel',
+  5:  'wheel → body',
+  4:  'wheel → body',
   3:  'face / chest',
+  2:  'head / body',
   1:  'behind listener'
 };
 
@@ -6539,42 +6548,40 @@ function sg_drawFrame(t) {
   }
 }
 
-// ── Distance (4.3.1): vertical landmark guide + listener marker with perspective shadow ──
+// ── Distance (4.3.1): vertical landmark guide (ticks only — score description follows the marker) ──
 function sg_drawDistanceGuide(ctx, W, H, vL, vR, vC, sT, sB, d) {
   var sH = sB - sT;
   var gx = vL + 10*d;                          // guida appena dentro il bordo sinistro
   ctx.save();
-  ctx.strokeStyle = 'rgba(0,229,204,.35)';
+  ctx.strokeStyle = 'rgba(0,229,204,.30)';
   ctx.lineWidth = 1.2*d; ctx.setLineDash([]);
   ctx.beginPath(); ctx.moveTo(gx, sT); ctx.lineTo(gx, sB); ctx.stroke();
 
-  // Tick marks: uno per ogni score 1..15 al punto "rappresentativo" (bordo inferiore del suo range)
-  // Score k mappato alla Y upper-bound del range (SG_DISTANCE_Y[14-k+1]) — per uniformità uso i boundary.
+  // Tick marks only — score numbers + descriptions are shown beneath the dot
   var ticks = [];
   for (var i = 0; i < SG_DISTANCE_Y.length; i++) {
     ticks.push({ score: SG_DISTANCE_SCORES[i], y: SG_DISTANCE_Y[i] });
   }
   ticks.push({ score: 1, y: 1.0 });
 
-  ctx.font = (9*d) + 'px JetBrains Mono,monospace';
+  ctx.font = 'bold ' + (8*d) + 'px JetBrains Mono,monospace';
+  ctx.textAlign = 'right';
   ticks.forEach(function(tk) {
     var ty = sT + sH * tk.y;
-    var primary = !!SG_DISTANCE_LABELS[tk.score];
-    var tlen = primary ? 10*d : 5*d;
-    ctx.strokeStyle = primary ? 'rgba(0,229,204,.75)' : 'rgba(0,229,204,.28)';
-    ctx.lineWidth = primary ? 1.5*d : 1*d;
+    var landmark = (tk.score === 15 || tk.score === 13 || tk.score === 9 || tk.score === 6 || tk.score === 3 || tk.score === 1);
+    var tlen = landmark ? 9*d : 4*d;
+    ctx.strokeStyle = landmark ? 'rgba(0,229,204,.65)' : 'rgba(0,229,204,.22)';
+    ctx.lineWidth = landmark ? 1.4*d : 1*d;
     ctx.beginPath(); ctx.moveTo(gx, ty); ctx.lineTo(gx + tlen, ty); ctx.stroke();
-
-    if (primary) {
-      ctx.fillStyle = 'rgba(0,229,204,.85)';
-      ctx.textAlign = 'left';
-      ctx.fillText(tk.score + ' · ' + SG_DISTANCE_LABELS[tk.score], gx + tlen + 4*d, ty + 3*d);
+    if (landmark) {
+      ctx.fillStyle = 'rgba(0,229,204,.55)';
+      ctx.fillText(tk.score, gx - 3*d, ty + 3*d);
     }
   });
 
   // Header
   ctx.font = 'bold ' + (9*d) + 'px JetBrains Mono,monospace';
-  ctx.fillStyle = 'rgba(0,229,204,.75)'; ctx.textAlign = 'left';
+  ctx.fillStyle = 'rgba(0,229,204,.6)'; ctx.textAlign = 'left';
   ctx.fillText('DISTANCE', gx - 2*d, sT - 10*d);
   ctx.restore();
 }
@@ -6589,40 +6596,40 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
   var score = isNone ? 0 : sg_yToDistanceScore(yN);
   var label = isNone ? 'No sound' : sg_distanceLabel(score);
 
-  // Radius: closer (higher yN) = larger
-  var radius = (12 + 14 * yN) * d;
+  // Perspective scaling: small when far (top), much larger when close (bottom)
+  var radius = (8 + 44 * yN) * d;
   var color  = isNone ? '180,180,190' : '0,229,204';
 
   ctx.save();
 
   // Perspective shadow ellipse below the marker
-  var shY = my + radius * 0.9;
-  var shRx = radius * (1.1 + 0.7 * yN);
-  var shRy = radius * (0.28 + 0.15 * yN);
-  var shA  = isNone ? 0.18 : (0.18 + 0.28 * yN);
+  var shY = my + radius * 0.95;
+  var shRx = radius * (1.0 + 0.9 * yN);
+  var shRy = radius * (0.22 + 0.18 * yN);
+  var shA  = isNone ? 0.18 : (0.18 + 0.32 * yN);
   var shG = ctx.createRadialGradient(mx, shY, 0, mx, shY, shRx);
   shG.addColorStop(0, 'rgba(0,0,0,' + shA + ')');
   shG.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = shG;
   ctx.beginPath(); ctx.ellipse(mx, shY, shRx, shRy, 0, 0, Math.PI*2); ctx.fill();
 
-  // Outer halo
+  // Outer halo (grows with distance perception)
   var halo = ctx.createRadialGradient(mx, my, radius*0.5, mx, my, radius*2.2);
-  halo.addColorStop(0, 'rgba(' + color + ',' + (isNone ? 0.15 : 0.28) + ')');
+  halo.addColorStop(0, 'rgba(' + color + ',' + (isNone ? 0.15 : 0.22 + 0.18*yN) + ')');
   halo.addColorStop(1, 'rgba(' + color + ',0)');
   ctx.fillStyle = halo;
   ctx.beginPath(); ctx.arc(mx, my, radius*2.2, 0, Math.PI*2); ctx.fill();
 
   // Marker body
   var body = ctx.createRadialGradient(mx - radius*0.3, my - radius*0.3, 0, mx, my, radius);
-  body.addColorStop(0, 'rgba(' + color + ',' + (isNone ? 0.55 : 0.85) + ')');
+  body.addColorStop(0, 'rgba(' + color + ',' + (isNone ? 0.55 : 0.88) + ')');
   body.addColorStop(1, 'rgba(' + color + ',' + (isNone ? 0.25 : 0.45) + ')');
   ctx.fillStyle = body;
   ctx.beginPath(); ctx.arc(mx, my, radius, 0, Math.PI*2); ctx.fill();
 
   // Ring
   ctx.strokeStyle = 'rgba(' + color + ',' + (isNone ? 0.6 : 0.95) + ')';
-  ctx.lineWidth = 2*d;
+  ctx.lineWidth = Math.max(1.5*d, 2*d * (0.7 + 0.6*yN));
   ctx.beginPath(); ctx.arc(mx, my, radius, 0, Math.PI*2); ctx.stroke();
 
   // Crosshair
@@ -6633,24 +6640,40 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
   ctx.moveTo(mx, my - radius*0.55); ctx.lineTo(mx, my + radius*0.55);
   ctx.stroke();
 
-  // Badge
-  var badge = 'Distance: ' + score + ' / 15';
-  if (label) badge += '  (' + label + ')';
-  ctx.font = 'bold ' + (11*d) + 'px JetBrains Mono,monospace';
-  ctx.textAlign = 'center';
-  var tw = ctx.measureText(badge).width;
-  var bx = mx, by = my - radius - 10*d;
-  var padX = 8*d, padY = 4*d;
-  ctx.fillStyle = 'rgba(0,0,0,.72)';
+  // Score + description rendered BELOW the dot, follows the marker
+  var scoreText = score + ' / 15';
+  var descText = label || '';
+  var fScore = 13*d, fDesc = 11*d;
+  ctx.font = 'bold ' + fScore + 'px JetBrains Mono,monospace';
+  var w1 = ctx.measureText(scoreText).width;
+  ctx.font = fDesc + 'px JetBrains Mono,monospace';
+  var w2 = descText ? ctx.measureText(descText).width : 0;
+  var padX = 10*d, padY = 6*d, lineH = 15*d;
+  var lines = descText ? 2 : 1;
+  var rw = Math.max(w1, w2) + padX*2;
+  var rh = padY*2 + lineH*lines;
+  // Place below the dot; flip above if it would clip the bottom of the scoring area
+  var by = my + radius + 14*d;
+  if (by + rh > sB - 4*d) by = my - radius - 14*d - rh;
+  var bx = mx;
+  if (bx - rw/2 < vL + 4*d) bx = vL + 4*d + rw/2;
+  if (bx + rw/2 > vR - 4*d) bx = vR - 4*d - rw/2;
+  ctx.fillStyle = 'rgba(0,0,0,.78)';
   ctx.strokeStyle = 'rgba(' + color + ',.55)';
   ctx.lineWidth = 1*d;
-  var rw = tw + padX*2, rh = 16*d + padY;
   ctx.beginPath();
-  if (ctx.roundRect) ctx.roundRect(bx - rw/2, by - rh, rw, rh, 6*d);
-  else ctx.rect(bx - rw/2, by - rh, rw, rh);
+  if (ctx.roundRect) ctx.roundRect(bx - rw/2, by, rw, rh, 7*d);
+  else ctx.rect(bx - rw/2, by, rw, rh);
   ctx.fill(); ctx.stroke();
+  ctx.textAlign = 'center';
+  ctx.font = 'bold ' + fScore + 'px JetBrains Mono,monospace';
   ctx.fillStyle = 'rgba(' + color + ',1)';
-  ctx.fillText(badge, bx, by - padY - 2*d);
+  ctx.fillText(scoreText, bx, by + padY + lineH - 3*d);
+  if (descText) {
+    ctx.font = fDesc + 'px JetBrains Mono,monospace';
+    ctx.fillStyle = 'rgba(255,255,255,.85)';
+    ctx.fillText(descText, bx, by + padY + lineH*2 - 3*d);
+  }
 
   ctx.restore();
 }
