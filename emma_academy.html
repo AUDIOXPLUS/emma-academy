@@ -1661,7 +1661,7 @@ function ta_renderProject(proj) {
     ta_buildClipsUI(proj);
 
     div.querySelector('[data-action="rename"]').addEventListener('change', e => { proj.name = e.target.value || 'Untitled'; });
-    div.querySelector('[data-action="save"]').addEventListener('click', () => ta_saveProject(proj));
+    div.querySelector('[data-action="save"]').addEventListener('click', e => ta_saveProject(proj, e.currentTarget));
     div.querySelector('[data-action="close"]').addEventListener('click', () => ta_closeProject(proj.id));
 
     document.getElementById(`ta-alt-int-${proj.id}`).addEventListener('change', e => {
@@ -2086,13 +2086,19 @@ function ta_hideModeBadge(proj) {
 }
 
 // ======================== SAVE / LOAD ========================
-function ta_saveProject(proj) {
+function ta_saveProject(proj, btn) {
     const d = JSON.stringify(proj.toJSON());
     const b = new Blob([d], { type: 'application/json' });
     const u = URL.createObjectURL(b), a = document.createElement('a');
     const fn = (proj.name || 'project') + '.tap';
     a.href = u; a.download = fn; a.click(); URL.revokeObjectURL(u);
     ta_toast('Saved as ' + fn);
+    if (btn) {
+        const orig = btn.innerHTML;
+        btn.innerHTML = '<i class="fas fa-check"></i> Saved';
+        btn.style.color = '#4ecdc4';
+        setTimeout(() => { btn.innerHTML = orig; btn.style.color = ''; }, 2000);
+    }
 }
 function ta_toast(msg) {
     const t = document.createElement('div');
