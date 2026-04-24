@@ -6227,25 +6227,30 @@ function sg_onPU(e) {
   sg_updateUI();
 }
 
-// Perspective curve exponent — ball and scoring zones converge onto the horizon.
-var SG_PERSP_POW = 1.6;
+// Hyperbolic (1/z) perspective — the correct projection for a point
+// moving along a receding ground plane. Higher K = stronger compression
+// near the horizon (near-logarithmic feel per pixel of pointer travel).
+var SG_PERSP_K = 3.0;
 
 // Forward perspective: score-space yN (0=far, 1=near) → screen Y.
-// Above the horizon is compressed to a single line, so far instruments
-// visually sit AT eye level instead of floating in the sky.
+// Above the horizon is clamped to eye level so far instruments converge
+// AT the horizon line instead of floating above it.
 function sg_yNToScreenY(yN, sT, sH) {
   var sB = sT + sH;
   var horizonY = sT + sH * sg_eyeLevel;
   var floorY   = sB;
   if (floorY <= horizonY) return horizonY;
   var t = Math.max(0, Math.min(1, yN));
-  return horizonY + (floorY - horizonY) * Math.pow(t, SG_PERSP_POW);
+  var K = SG_PERSP_K;
+  var screenT = t / (K + t * (1 - K));    // = t / (t + (1-t)*K)
+  return horizonY + (floorY - horizonY) * screenT;
 }
 
-// Inverse perspective: canvas Y (pointer) → yN. Points above the horizon
-// clamp to yN=0 (score 15). Points inside the dashboard plane are mapped
-// through the inverse perspective curve so the pointer feels like it's
-// following a receding surface, not a flat slider.
+// Inverse perspective: canvas Y (pointer) → yN. Tapping above the
+// horizon clamps to score 15. Inside the dashboard band the pointer
+// slides along the 1/z curve, so each pixel near the horizon represents
+// a large depth change and each pixel near the listener represents a
+// small one — the "logarithmic" feel of real-world distance perception.
 function sg_canvasYToNorm(yPx) {
   var d = window.devicePixelRatio || 1;
   var H = sg_canvas.height;
@@ -6256,7 +6261,8 @@ function sg_canvasYToNorm(yPx) {
   if (yPx <= horizonY) return 0;
   if (yPx >= floorY)   return 1;
   var t = (yPx - horizonY) / (floorY - horizonY);
-  return Math.pow(t, 1 / SG_PERSP_POW);
+  var K = SG_PERSP_K;
+  return (t * K) / (t * K + (1 - t));     // inverse of the forward curve
 }
 
 function sg_getCanvasPt(e) {
@@ -6620,10 +6626,13 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
 
   // ── Perspective projection ────────────────────────────────────────
   // The ball rolls along the dashboard toward the horizon (eye level).
-  // Visual Y converges onto the horizon as the ball recedes; size
-  // shrinks to a speck. The score still comes from yN linearly via
+  // Visual Y and diameter both follow the same hyperbolic 1/z curve
+  // (sg_yNToScreenY), so size shrinks together with depth — true
+  // perspective, not a linear slider. Score still comes from yN via
   // sg_yToDistanceScore.
-  var sizeT = Math.pow(yN, 1.35);               // aggressive size taper
+  var sizeT = (yN * SG_PERSP_K) > 0
+    ? (yN / (SG_PERSP_K + yN * (1 - SG_PERSP_K)))
+    : 0;
   var my    = sg_yNToScreenY(yN, sT, sH);
   var mx    = vC;
 
