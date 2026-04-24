@@ -1618,16 +1618,16 @@ function ta_renderProject(proj) {
             <div class="project-header">
                 <input class="proj-name" value="${ta_escapeHtml(proj.name)}" data-action="rename">
                 <div class="project-header-actions">
-                    <button class="ph-btn" data-action="save"><i class="fas fa-save"></i> Salva</button>
+                    <button class="ph-btn" data-action="save"><i class="fas fa-save"></i> Save</button>
                     <button class="ph-btn danger" data-action="close"><i class="fas fa-times"></i></button>
                 </div>
             </div>
         </div>
         <div class="edit-panel" id="ta-edit-panel-${proj.id}">
-            <div class="edit-section-title"><i class="fas fa-sliders-h"></i> EQ Parametrico — 4 Bande</div>
+            <div class="edit-section-title"><i class="fas fa-sliders-h"></i> Parametric EQ — 4 Bands</div>
             <div class="eq-bands-grid" id="ta-eq-grid-${proj.id}"></div>
             <div class="edit-settings-row">
-                <label>Alternanza A/B (sec):</label>
+                <label>A/B Alternation (sec):</label>
                 <input type="text" class="eq-input" id="ta-alt-int-${proj.id}" value="${proj.altInterval}">
             </div>
         </div>
@@ -2094,7 +2094,7 @@ function ta_saveProject(proj) {
 }
 async function ta_loadProjectFromFile(file) {
     try { const d = JSON.parse(await file.text()); await ta_createProjectFromData(d); }
-    catch (e) { console.error(e); alert('Errore: ' + e.message); }
+    catch (e) { console.error(e); alert('Error: ' + e.message); }
 }
 async function ta_createProjectFromData(data) {
     const tc = new (window.AudioContext || window.webkitAudioContext)();
@@ -2102,7 +2102,7 @@ async function ta_createProjectFromData(data) {
     for (let i = 0; i < bin.length; i++) by[i] = bin.charCodeAt(i);
     const ab = await tc.decodeAudioData(by.buffer); tc.close();
     const id = ta_projectIdCounter++;
-    const p = new ta_Project(id, data.name || 'Progetto', ab, data.audioBase64, data.audioMime || 'audio/wav');
+    const p = new ta_Project(id, data.name || 'Project', ab, data.audioBase64, data.audioMime || 'audio/wav');
     await p.decodeForLocalCtx();
     if (data.bands) data.bands.forEach((b, i) => { if (i < 4) { p.setFilterParams(i, 'type', b.type); p.setFilterParams(i, 'freq', b.freq); p.setFilterParams(i, 'q', b.q); p.setFilterParams(i, 'gain', b.gain); } });
     if (data.clips) data.clips.forEach((c, i) => { if (i < 4) p.clips[i] = { start: c.start, end: c.end }; });
@@ -2119,7 +2119,7 @@ async function ta_createProjectFromAudioFile(file) {
         const p = new ta_Project(id, nm, buf, b64, file.type || 'audio/wav');
         await p.decodeForLocalCtx();
         ta_projects.push(p); ta_renderProject(p);
-    } catch (e) { console.error(e); alert('Errore: ' + e.message); }
+    } catch (e) { console.error(e); alert('Error: ' + e.message); }
 }
 function ta_closeProject(id) {
     const i = ta_projects.findIndex(p => p.id === id);
@@ -2179,8 +2179,8 @@ function ta_initIfNeeded() {
     <button id="ta-btn-back" onclick="showPage('main')">&#8592; Back</button>
     <span id="ta-title"><i class="fas fa-wave-square"></i> TONAL ACCURACY</span>
     <div id="ta-header-actions">
-      <button class="ta-header-btn" id="ta-btnNewProject"><i class="fas fa-plus"></i> Nuovo Progetto</button>
-      <button class="ta-header-btn primary" id="ta-btnLoadProject"><i class="fas fa-folder-open"></i> Apri Progetto</button>
+      <button class="ta-header-btn" id="ta-btnNewProject"><i class="fas fa-plus"></i> New Project</button>
+      <button class="ta-header-btn primary" id="ta-btnLoadProject"><i class="fas fa-folder-open"></i> Open Project</button>
       <button class="help-btn" onclick="showHelp('tonal')" title="Help">?</button>
     </div>
     <input type="file" class="ta-hidden-input" id="ta-inputNewAudio" accept="audio/*">
@@ -5224,8 +5224,8 @@ var HELP_CONTENT = {
       <p>This module is a tool for practicing <strong>tonal accuracy</strong> listening. You compare two versions of a track — a <em>dry</em> (unprocessed) version and an <em>EQ'd</em> (processed) version — and try to identify the tonal differences.</p>
       <h3>Creating a project</h3>
       <ul>
-        <li>Click <strong>Nuovo Progetto</strong> to create a project from an audio file.</li>
-        <li>Open an existing project (<strong>.tap</strong> file) with <strong>Apri Progetto</strong>.</li>
+        <li>Click <strong>New Project</strong> to create a project from an audio file.</li>
+        <li>Open an existing project (<strong>.tap</strong> file) with <strong>Open Project</strong>.</li>
         <li>You can also drag and drop audio files or project files directly onto the page.</li>
       </ul>
       <h3>EQ bands</h3>
