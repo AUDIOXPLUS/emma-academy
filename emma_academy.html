@@ -6799,14 +6799,19 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
   // Score + description rendered BELOW the dot, follows the marker
   var scoreText = score + ' / 15';
   var descText = label || '';
-  var fScore = 13*d, fDesc = 11*d;
+  // DEBUG temporaneo: mostra yN e T correnti
+  var debugT = (typeof lineT !== 'undefined' && !isNaN(lineT)) ? lineT : null;
+  var debugText = 'yN=' + yN.toFixed(3) + '  T=' + (debugT == null ? '—' : debugT.toFixed(3));
+  var fScore = 13*d, fDesc = 11*d, fDbg = 10*d;
   ctx.font = 'bold ' + fScore + 'px JetBrains Mono,monospace';
   var w1 = ctx.measureText(scoreText).width;
   ctx.font = fDesc + 'px JetBrains Mono,monospace';
   var w2 = descText ? ctx.measureText(descText).width : 0;
+  ctx.font = fDbg + 'px JetBrains Mono,monospace';
+  var w3 = ctx.measureText(debugText).width;
   var padX = 10*d, padY = 6*d, lineH = 15*d;
-  var lines = descText ? 2 : 1;
-  var rw = Math.max(w1, w2) + padX*2;
+  var lines = 1 + (descText ? 1 : 0) + 1;   // score + (desc) + debug
+  var rw = Math.max(w1, w2, w3) + padX*2;
   var rh = padY*2 + lineH*lines;
   // Place below the dot; flip above if it would clip the bottom of the scoring area
   var by = my + radius + 14*d;
@@ -6822,14 +6827,21 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
   else ctx.rect(bx - rw/2, by, rw, rh);
   ctx.fill(); ctx.stroke();
   ctx.textAlign = 'center';
+  var lineIdx = 0;
   ctx.font = 'bold ' + fScore + 'px JetBrains Mono,monospace';
   ctx.fillStyle = 'rgba(' + color + ',1)';
-  ctx.fillText(scoreText, bx, by + padY + lineH - 3*d);
+  lineIdx++;
+  ctx.fillText(scoreText, bx, by + padY + lineH*lineIdx - 3*d);
   if (descText) {
     ctx.font = fDesc + 'px JetBrains Mono,monospace';
     ctx.fillStyle = 'rgba(255,255,255,.85)';
-    ctx.fillText(descText, bx, by + padY + lineH*2 - 3*d);
+    lineIdx++;
+    ctx.fillText(descText, bx, by + padY + lineH*lineIdx - 3*d);
   }
+  ctx.font = fDbg + 'px JetBrains Mono,monospace';
+  ctx.fillStyle = 'rgba(255,220,120,.85)';
+  lineIdx++;
+  ctx.fillText(debugText, bx, by + padY + lineH*lineIdx - 3*d);
 
   ctx.restore();
 }
