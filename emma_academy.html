@@ -758,15 +758,18 @@ body.immersive #inst-picker,body.immersive #btn-add-wrap{opacity:0;pointer-event
     #page-tonal .clips-controls { grid-template-columns: 1fr 1fr; }
 }
 
-/* Tablet / mobile: shrink the per-module topbars so the row fits without
-   the buttons feeling oversized. Scoped to module topbars so the desktop
-   layout stays untouched at >= 1100px. */
-@media (max-width: 1100px) {
+/* Tablet / mobile / touch: shrink the per-module topbars so the row fits
+   without the buttons feeling oversized. Triggers on narrow viewports
+   AND on coarse pointers (catches tablets up to 1280 CSS px wide and
+   any touch device regardless of width). */
+@media (max-width: 1280px), (pointer: coarse) {
     #sg-topbar, #sc-topbar, #fc-topbar { height: 38px; padding: 0 8px; gap: 6px; }
     #sg-topbar button, #sc-topbar button, #fc-topbar button { padding: 4px 9px; font-size: 11px; border-radius: 6px; }
     #sg-topbar #sg-title, #sc-topbar #sc-title, #fc-topbar #fc-title { font-size: 11px; letter-spacing: 1px; }
     #sg-topbar .topbar-emma-logo, #sc-topbar .topbar-emma-logo, #fc-topbar .topbar-emma-logo { height: 22px; }
     #sg-topbar .sg-mode-btn { padding: 4px 9px; font-size: 11px; }
+    #sg-cv, #sc-cv { top: 38px !important; height: calc(100vh - 98px) !important; height: calc(100dvh - 98px) !important; }
+    #fc-cv { top: 38px !important; height: calc(100vh - 134px) !important; height: calc(100dvh - 134px) !important; }
     .emma-build-tag { font-size: 9px; bottom: 18px; }
 }
 @media (max-width: 720px) {
@@ -775,6 +778,8 @@ body.immersive #inst-picker,body.immersive #btn-add-wrap{opacity:0;pointer-event
     #sg-topbar .sg-mode-btn { padding: 3px 7px; font-size: 10px; }
     #sg-topbar #sg-title, #sc-topbar #sc-title, #fc-topbar #fc-title { font-size: 10px; }
     #sg-topbar .topbar-emma-logo, #sc-topbar .topbar-emma-logo, #fc-topbar .topbar-emma-logo { height: 18px; opacity: .55; }
+    #sg-cv, #sc-cv { top: 34px !important; height: calc(100vh - 94px) !important; height: calc(100dvh - 94px) !important; }
+    #fc-cv { top: 34px !important; height: calc(100vh - 130px) !important; height: calc(100dvh - 130px) !important; }
 }
 
 /* ===== MODULE LOADING OVERLAY ===== */
@@ -842,7 +847,7 @@ body.immersive #inst-picker,body.immersive #btn-add-wrap{opacity:0;pointer-event
 <div id="emma-instructor-bar"></div>
 <!-- Module credit (fixed bottom-right, hidden on landing) -->
 <div id="module-credit" class="module-credit" style="display:none">...By Francesco Richichi</div>
-<span class="emma-build-tag" title="Build identifier — short hash of the latest commit shipped on this branch">build:4224d99</span>
+<span class="emma-build-tag" title="Build identifier — short hash of the latest commit shipped on this branch">build:7237764</span>
 
 <!-- Help modal (shared across all modules) -->
 <div id="help-modal">
