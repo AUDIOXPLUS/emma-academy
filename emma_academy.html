@@ -282,12 +282,8 @@ body.immersive #inst-picker,body.immersive #btn-add-wrap{opacity:0;pointer-event
 #sg-topbar .sg-mode-btn { background: transparent; border: none; border-radius: 0; color: #888; padding: 5px 12px; font-size: 12px; font-weight: 600; }
 #sg-topbar .sg-mode-btn + .sg-mode-btn { border-left: 1px solid rgba(255,255,255,.1); }
 #sg-topbar .sg-mode-btn.active { color: #00e5cc; background: rgba(0,229,204,.14); }
-#sg-topbar #sg-btn-no-sound,
-#sg-topbar #sg-btn-copy-distance,
-#sg-topbar #sg-btn-reset-distance { background: rgba(255,255,255,.05); color: #bbb; border: 1px solid rgba(255,255,255,.15); padding: 5px 12px; font-size: 12px; }
-#sg-topbar #sg-btn-no-sound:hover,
-#sg-topbar #sg-btn-copy-distance:hover,
-#sg-topbar #sg-btn-reset-distance:hover { color: #fff; border-color: rgba(0,229,204,.4); }
+#sg-topbar #sg-btn-no-sound { background: rgba(255,255,255,.05); color: #bbb; border: 1px solid rgba(255,255,255,.15); padding: 5px 12px; font-size: 12px; }
+#sg-topbar #sg-btn-no-sound:hover { color: #fff; border-color: rgba(0,229,204,.4); }
 
 /* ===== TONAL ACCURACY PAGE ===== */
 #page-tonal { display: none; z-index: 1; position: fixed; inset: 0; overflow-y: auto; background: #0a0a14; }
@@ -1401,6 +1397,12 @@ body.immersive #inst-picker,body.immersive #btn-add-wrap{opacity:0;pointer-event
         </label>
         <button class="tb-dd-reset" id="sg-zones-reset" style="margin-top:4px">&#8635; Reset zone positions</button>
         <div class="tb-dd-sep"></div>
+        <div class="tb-dd-section">DISTANCE</div>
+        <label class="tb-dd-check">
+          <input type="checkbox" id="sg-dc-show-tls"> Show T / L / Size on score box
+        </label>
+        <button class="tb-dd-reset" id="sg-btn-copy-distance" style="margin-top:4px" title="Copy the current distance mapping (default + your edits) as a JS array literal">&#128203; Copy distance mapping</button>
+        <div class="tb-dd-sep"></div>
         <button class="tb-dd-reset" id="sg-dc-reset">&#8635; Reset</button>
       </div>
     </div>
@@ -1409,8 +1411,6 @@ body.immersive #inst-picker,body.immersive #btn-add-wrap{opacity:0;pointer-event
       <button class="sg-mode-btn" id="sg-mode-distance" data-mode="distance">Distance</button>
     </div>
     <button id="sg-btn-no-sound" style="display:none;">&#128263; No sound</button>
-    <button id="sg-btn-copy-distance" style="display:none;" title="Copy the current distance mapping (merged default + your edits) as a JS array literal you can paste back to make permanent">&#128203; Copy distance mapping</button>
-    <button id="sg-btn-reset-distance" style="display:none;" title="Clear all per-score distance calibration edits">&#8635; Reset distance edits</button>
     <button class="help-btn" onclick="showHelp('stage')" title="Help">?</button>
     <span class="topbar-credit">...By Francesco Richichi</span>
   </div>
@@ -6048,14 +6048,14 @@ function sg_initIfNeeded() {
     });
     var copyDistBtn = document.getElementById('sg-btn-copy-distance');
     if (copyDistBtn) copyDistBtn.addEventListener('click', sg_copyDistanceMapping);
-    var resetDistBtn = document.getElementById('sg-btn-reset-distance');
-    if (resetDistBtn) resetDistBtn.addEventListener('click', function(){
-      if (!Object.keys(sg_distanceUserCalib).length) return;
-      if (!confirm('Clear all per-score distance calibration edits?')) return;
-      sg_distanceUserCalib = {};
-      sg_distanceLiveT = null;
-      sg_drawFrame(sg_curT || 0);
-    });
+    var showTlsCb = document.getElementById('sg-dc-show-tls');
+    if (showTlsCb) {
+      showTlsCb.checked = !!sg_distanceShowTLS;
+      showTlsCb.addEventListener('change', function(){
+        sg_distanceShowTLS = !!showTlsCb.checked;
+        sg_drawFrame(sg_curT || 0);
+      });
+    }
   })();
 
   sg_updateUI();
@@ -6617,6 +6617,12 @@ var sg_distanceUserCalib = {};
 // dragged with the pointer. Cleared on pointer-up after committing the
 // final value into sg_distanceUserCalib at the resulting score.
 var sg_distanceLiveT = null;
+
+// Calibration popover compact mode: when false the box shows only Score
+// and the textual landmark; when true it also exposes T / L / Size
+// stepper rows for fine calibration. Toggled from the SG dashboard
+// dropdown ("Show T / L / Size on score box").
+var sg_distanceShowTLS = false;
 
 // Canonical yN per score (boundary-based, matching SG_DISTANCE_Y). Used
 // both as the position the Score stepper snaps to and the yN at which
@@ -7251,7 +7257,8 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
   var padX = 10*d, padY = 6*d, lineH = 15*d, stepLineH = 18*d;
   var lines = 1 + (descText ? 1 : 0);
   var rw = Math.max(w1, w2, stepRowW) + padX*2;
-  var rh = padY*2 + lineH*lines + stepLineH*4;
+  var stepRowsCount = sg_distanceShowTLS ? 4 : 1;  // Score (+T/L/Size if enabled)
+  var rh = padY*2 + lineH*lines + stepLineH*stepRowsCount;
 
   // Place below the dot; flip above if it would clip the bottom
   var by = my + radius + 14*d;
@@ -7322,9 +7329,11 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
     _sg_distance_arrows[name + '_up'] = { x: upCx - arrowW/2, y: rowMidY - hitH/2, w: arrowW, h: hitH };
   }
   drawStepRow('Score', 'Score', ScStr);
-  drawStepRow('T',     'T',     TStr);
-  drawStepRow('L',     'L',     LStr);
-  drawStepRow('Size',  'Size',  SzStr);
+  if (sg_distanceShowTLS) {
+    drawStepRow('T',    'T',    TStr);
+    drawStepRow('L',    'L',    LStr);
+    drawStepRow('Size', 'Size', SzStr);
+  }
 
   ctx.restore();
 }
@@ -7520,10 +7529,6 @@ function sg_updateUI() {
   }
   var noSoundBtn = document.getElementById('sg-btn-no-sound');
   if (noSoundBtn) noSoundBtn.style.display = isDistance ? 'inline-block' : 'none';
-  var copyDistBtn = document.getElementById('sg-btn-copy-distance');
-  if (copyDistBtn) copyDistBtn.style.display = isDistance ? 'inline-block' : 'none';
-  var resetDistBtn = document.getElementById('sg-btn-reset-distance');
-  if (resetDistBtn) resetDistBtn.style.display = isDistance ? 'inline-block' : 'none';
 }
 
 // ── Scoresheet ──
