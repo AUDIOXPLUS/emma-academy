@@ -6281,7 +6281,10 @@ function sg_applyDistanceStep(field, dir, big) {
     sg_tuneTOverride = Math.max(-1, Math.min(2, baseT + stepT));
   } else if (field === 'L') {
     var stepL = (big ? 10 : 1) * dir;
-    var baseLpct = (snap.L != null) ? snap.L : Math.round((sg_tuneLineLenFrac == null ? 1 : sg_tuneLineLenFrac) * 100);
+    // snap.L is the displayed L (in %, already auto-or-override)
+    var baseLpct = (sg_tuneLineLenFrac != null)
+      ? Math.round(sg_tuneLineLenFrac * 100)
+      : (snap.L != null ? snap.L : 100);
     var newPct = Math.max(0, Math.min(100, baseLpct + stepL));
     sg_tuneLineLenFrac = newPct / 100;
   } else if (field === 'Score') {
@@ -6333,12 +6336,8 @@ function sg_onPD(e) {
     sg_state.distanceY = yN;
     sg_state.distanceNoSound = false;
     sg_state.distanceDragging = true;
-    // Moving the marker resets the per-point overrides (T, Score, Size) so
-    // the new position starts from auto-computed values; the arrows can
-    // then fine-tune from there. L (line length) is global, not per-point.
-    sg_tuneTOverride     = null;
-    sg_tuneScoreOverride = null;
-    sg_tuneSizeOverride  = null;
+    // Note: overrides (T, L, Score, Size) are intentionally NOT reset on
+    // click anymore — fine-tuning persists while the user moves the marker.
     sg_canvas.setPointerCapture(e.pointerId);
     sg_drawFrame(sg_curT);
     sg_updateUI();
@@ -6488,9 +6487,44 @@ var sg_dashScaleY   = 5.0;   // vertical scale factor (500%)
 var sg_eyeLevel     = 0.46;  // eye level position: 0.0=top … 1.0=bottom of scoring field
 // Tuning overrides (Distance laser): null = auto, otherwise force the value
 var sg_tuneTOverride  = null;
-var sg_tuneLineLenFrac = 1.0;   // 0..1 fraction of full width
+var sg_tuneLineLenFrac = null;  // null = auto from SG_DISTANCE_CALIB, 0..1 to force
 var sg_tuneScoreOverride = null; // null = auto, 0..15 to force the score
-var sg_tuneSizeOverride  = null; // null = auto-perspective, 0..1 (sizeT) to force marker radius
+var sg_tuneSizeOverride  = null; // null = auto from SG_DISTANCE_CALIB, 0..1 (sizeT) to force marker radius
+
+// Per-yN calibration table for the Distance laser. Each row gives the
+// auto-computed T (laser anchor), L (line length frac) and Size (marker
+// radius frac) at a specific yN. Adjacent rows are linearly interpolated.
+// User-supplied calibration points get added here as (yN ↔ score) pairs.
+//   score 15 ≈ yN 0.00 (windshield)
+//   score 13 ≈ yN 0.24
+//   score 10 ≈ yN 0.46
+//   below score 10 we keep prior placeholders until more data is provided.
+var SG_DISTANCE_CALIB = [
+  { yN: 0.00, T: 0.220, L: 0.55, Size: 0.10 },  // score 15 — over windshield
+  { yN: 0.24, T: 0.672, L: 0.75, Size: 0.33 },  // score 13 — windshield
+  { yN: 0.46, T: 0.768, L: 0.88, Size: 0.40 },  // score 10 — dashboard → windshield
+  { yN: 1.00, T: 0.900, L: 1.00, Size: 1.00 }   // closest (placeholder, awaiting calibration)
+];
+
+function sg_distanceAutoFromYN(yN) {
+  var y = Math.max(0, Math.min(1, yN));
+  if (y <= SG_DISTANCE_CALIB[0].yN) {
+    var f = SG_DISTANCE_CALIB[0]; return { T: f.T, L: f.L, Size: f.Size };
+  }
+  for (var i = 1; i < SG_DISTANCE_CALIB.length; i++) {
+    var a = SG_DISTANCE_CALIB[i - 1], b = SG_DISTANCE_CALIB[i];
+    if (y <= b.yN) {
+      var k = (b.yN > a.yN) ? (y - a.yN) / (b.yN - a.yN) : 0;
+      return {
+        T:    a.T    + (b.T    - a.T   ) * k,
+        L:    a.L    + (b.L    - a.L   ) * k,
+        Size: a.Size + (b.Size - a.Size) * k
+      };
+    }
+  }
+  var l = SG_DISTANCE_CALIB[SG_DISTANCE_CALIB.length - 1];
+  return { T: l.T, L: l.L, Size: l.Size };
+}
 // Width-zone editing: when true the vertical zone lines become draggable.
 var sg_zonesEditable = false;
 var SG_WIDTH_ZONES_DEFAULT = [0.127, 0.338, 0.657, 0.746, 0.848, 0.931, 1.100];
@@ -6824,17 +6858,12 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
   }
   var label = isNone ? 'No sound' : sg_distanceLabel(score);
 
-  // ── Perspective projection ────────────────────────────────────────
-  // The ball rolls along the dashboard toward the horizon (eye level).
-  // Visual Y and diameter both follow the same hyperbolic 1/z curve
-  // (sg_yNToScreenY), so size shrinks together with depth — true
-  // perspective, not a linear slider. Score still comes from yN via
-  // sg_yToDistanceScore.
-  var sizeT = (yN * SG_PERSP_K) > 0
-    ? (yN / (SG_PERSP_K + yN * (1 - SG_PERSP_K)))
-    : 0;
-  // Size override: lets the user pin the marker radius regardless of
-  // perspective. 0..1 maps to the same range as auto-computed sizeT.
+  // ── Auto values from per-yN calibration table ────────────────────
+  // Size and laser T (and L) are no longer derived from a fixed perspective
+  // formula: they're interpolated from SG_DISTANCE_CALIB so the user's
+  // measured calibration points become the new defaults.
+  var auto = sg_distanceAutoFromYN(yN);
+  var sizeT = auto.Size;
   if (!isNone && sg_tuneSizeOverride != null) {
     sizeT = Math.max(0, Math.min(1, sg_tuneSizeOverride));
   }
@@ -6860,49 +6889,14 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
     var extra    = (floorY - horizonY) * 0.25;   // headroom past the floor
     var travel   = (floorY - horizonY) + extra;
 
-    // Piecewise speed profile for the laser as it travels from score 15
-    // (far) to score 1 (near):
-    //   • 15 → 10 : very slow  (line barely moves)
-    //   • 10 → 7  : same slow pace
-    //   • 7  → 5  : sharp acceleration (big jump across the wheel)
-    //   • 5  → 1  : slows down again
-    // Each anchor is (yN, T) where T is the fraction of the total travel.
-    // One entry per score boundary (upper yN of each score). Edit any
-    // single T value to re-place a specific score independently.
-    var SG_LASER_BREAKS = [
-      { yN: 0.00, T: 0.220 },  // start (score 15 farthest edge)
-      { yN: 0.06, T: 0.228 },  // end of score 15
-      { yN: 0.15, T: 0.240 },  // end of score 14
-      { yN: 0.24, T: 0.252 },  // end of score 13
-      { yN: 0.32, T: 0.263 },  // end of score 12
-      { yN: 0.39, T: 0.272 },  // end of score 11
-      { yN: 0.46, T: 0.281 },  // end of score 10
-      { yN: 0.54, T: 0.292 },  // end of score 9
-      { yN: 0.60, T: 0.300 },  // end of score 8  (7/8 boundary)
-      { yN: 0.68, T: 0.400 },  // end of score 7
-      { yN: 0.76, T: 0.500 },  // end of score 6  (5/6 boundary)
-      { yN: 0.82, T: 0.600 },  // end of score 5
-      { yN: 0.87, T: 0.683 },  // end of score 4
-      { yN: 0.92, T: 0.767 },  // end of score 3
-      { yN: 0.97, T: 0.850 },  // end of score 2
-      { yN: 1.00, T: 0.900 }   // end of score 1
-    ];
-    var tY = Math.max(0, Math.min(1, yN));
-    var lineT = SG_LASER_BREAKS[SG_LASER_BREAKS.length - 1].T;
-    for (var bi = 1; bi < SG_LASER_BREAKS.length; bi++) {
-      var aB = SG_LASER_BREAKS[bi - 1], bB = SG_LASER_BREAKS[bi];
-      if (tY <= bB.yN) {
-        var k = (bB.yN > aB.yN) ? (tY - aB.yN) / (bB.yN - aB.yN) : 0;
-        lineT = aB.T + (bB.T - aB.T) * k;
-        break;
-      }
-    }
-    // Tuning override for T (laser depth on screen)
-    if (sg_tuneTOverride != null) lineT = sg_tuneTOverride;
+    // T (laser depth) and L (line length frac) come from the per-yN
+    // calibration table SG_DISTANCE_CALIB. Overrides win when set.
+    var lineT = (sg_tuneTOverride != null) ? sg_tuneTOverride : auto.T;
     var lineY = horizonY + travel * lineT;
     var lineTClamped = Math.max(0, Math.min(1, lineT));
-    // Line length tuning: shrink horizontally around the canvas centre.
-    var lenFrac = (sg_tuneLineLenFrac == null) ? 1 : Math.max(0, Math.min(1, sg_tuneLineLenFrac));
+    var lenFrac = (sg_tuneLineLenFrac == null)
+      ? Math.max(0, Math.min(1, auto.L))
+      : Math.max(0, Math.min(1, sg_tuneLineLenFrac));
     var halfLen = (vR - vL) * 0.5 * lenFrac;
     var planeL   = vC - halfLen;
     var planeR   = vC + halfLen;
@@ -7002,7 +6996,9 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
   var scoreText = score + ' / 15';
   var descText  = label || '';
   var curT_     = (typeof lineT !== 'undefined' && !isNaN(lineT)) ? lineT : null;
-  var curL_     = Math.max(0, Math.min(1, (sg_tuneLineLenFrac == null ? 1 : sg_tuneLineLenFrac)));
+  var curL_     = (sg_tuneLineLenFrac == null)
+    ? Math.max(0, Math.min(1, auto.L))
+    : Math.max(0, Math.min(1, sg_tuneLineLenFrac));
   var TStr  = (curT_ == null) ? '—' : curT_.toFixed(3);
   var LStr  = Math.round(curL_ * 100) + '%';
   var ScStr = String(score);                          // Score (0..15)
@@ -7081,7 +7077,7 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
     ctx.fillText('◀', dnCx, rowMidY + fStep*0.35);
     // value (highlighted in yellow when override active, white otherwise)
     var hasOverride = (name === 'T'     && sg_tuneTOverride     != null) ||
-                      (name === 'L'     && sg_tuneLineLenFrac   !== 1)  ||
+                      (name === 'L'     && sg_tuneLineLenFrac   != null) ||
                       (name === 'Score' && sg_tuneScoreOverride != null) ||
                       (name === 'Size'  && sg_tuneSizeOverride  != null);
     ctx.fillStyle = hasOverride ? 'rgba(255,220,120,.95)' : 'rgba(255,255,255,.92)';
