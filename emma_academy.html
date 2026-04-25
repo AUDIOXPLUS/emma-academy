@@ -7253,11 +7253,13 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
   // Fixed column widths for the stepper rows
   var labelW = 30*d, arrowW = 18*d, gap = 6*d, valueW = 56*d;
   var stepRowW = labelW + gap + arrowW + gap + valueW + gap + arrowW;
+  // Header row carries the Score steppers around the score text
+  var hdrRowW = arrowW + gap + w1 + gap + arrowW;
 
   var padX = 10*d, padY = 6*d, lineH = 15*d, stepLineH = 18*d;
   var lines = 1 + (descText ? 1 : 0);
-  var rw = Math.max(w1, w2, stepRowW) + padX*2;
-  var stepRowsCount = sg_distanceShowTLS ? 4 : 1;  // Score (+T/L/Size if enabled)
+  var rw = Math.max(hdrRowW, w2, sg_distanceShowTLS ? stepRowW : 0) + padX*2;
+  var stepRowsCount = sg_distanceShowTLS ? 3 : 0;  // T / L / Size when enabled
   var rh = padY*2 + lineH*lines + stepLineH*stepRowsCount;
 
   // Place below the dot; flip above if it would clip the bottom
@@ -7275,13 +7277,22 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
   else ctx.rect(bx - rw/2, by, rw, rh);
   ctx.fill(); ctx.stroke();
 
-  // Score line
+  // Header row: ◀ score / 15 ▶ — Score stepper sits around the big number
   var cursorY = by + padY;
-  ctx.textAlign = 'center';
-  ctx.font = 'bold ' + fScore + 'px JetBrains Mono,monospace';
-  ctx.fillStyle = 'rgba(' + color + ',1)';
   cursorY += lineH;
-  ctx.fillText(scoreText, bx, cursorY - 3*d);
+  var hdrMidY = cursorY - 3*d;
+  ctx.font = 'bold ' + fScore + 'px JetBrains Mono,monospace';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(' + color + ',1)';
+  ctx.fillText(scoreText, bx, hdrMidY);
+  // ◀ ▶ around the score text. Use the stepper font so they look uniform
+  // with the T/L/Size arrows when those rows are visible.
+  var hdrDnCx = bx - w1/2 - gap - arrowW/2;
+  var hdrUpCx = bx + w1/2 + gap + arrowW/2;
+  ctx.font = 'bold ' + fStep + 'px JetBrains Mono,monospace';
+  ctx.fillStyle = 'rgba(0,229,204,.95)';
+  ctx.fillText('◀', hdrDnCx, hdrMidY);
+  ctx.fillText('▶', hdrUpCx, hdrMidY);
 
   // Description line
   if (descText) {
@@ -7291,14 +7302,19 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
     ctx.fillText(descText, bx, cursorY - 3*d);
   }
 
-  // ── Stepper rows (T / L / Score / Size) ──────────────────────────────────
-  // yN has no stepper: it's set by dragging the marker along the laser line.
+  // ── Stepper rows (T / L / Size) ──────────────────────────────────────────
+  // Score steppers are in the header above; arrow hit boxes are registered
+  // here so sg_distanceArrowHitTest matches them via the same path used by
+  // the optional T / L / Size rows.
   _sg_distance_arrows = {
     T:     curT_,
     L:     Math.round(curL_ * 100),
     Score: score,
     Size:  SzPct
   };
+  var hdrHitH = lineH;
+  _sg_distance_arrows.Score_dn = { x: hdrDnCx - arrowW/2, y: hdrMidY - hdrHitH/2, w: arrowW, h: hdrHitH };
+  _sg_distance_arrows.Score_up = { x: hdrUpCx - arrowW/2, y: hdrMidY - hdrHitH/2, w: arrowW, h: hdrHitH };
   var rowLeft = bx - stepRowW/2;
   var labelCx = rowLeft + labelW/2;
   var dnCx    = rowLeft + labelW + gap + arrowW/2;
@@ -7328,7 +7344,6 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
     _sg_distance_arrows[name + '_dn'] = { x: dnCx - arrowW/2, y: rowMidY - hitH/2, w: arrowW, h: hitH };
     _sg_distance_arrows[name + '_up'] = { x: upCx - arrowW/2, y: rowMidY - hitH/2, w: arrowW, h: hitH };
   }
-  drawStepRow('Score', 'Score', ScStr);
   if (sg_distanceShowTLS) {
     drawStepRow('T',    'T',    TStr);
     drawStepRow('L',    'L',    LStr);
