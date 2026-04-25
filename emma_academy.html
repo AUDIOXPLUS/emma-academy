@@ -8,7 +8,8 @@
 <style>
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap');
 *{margin:0;padding:0;box-sizing:border-box;}
-body{background:#000;color:#e0e0e0;font-family:'JetBrains Mono','Fira Mono',monospace;height:100vh;height:100dvh;overflow:hidden;-webkit-user-select:none;user-select:none;}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%;}
+body{background:#000;color:#e0e0e0;font-family:'JetBrains Mono','Fira Mono',monospace;height:100vh;height:100dvh;overflow:hidden;-webkit-user-select:none;user-select:none;-webkit-text-size-adjust:100%;text-size-adjust:100%;}
 
 canvas#cv{position:fixed;inset:0;width:100%;height:100%;display:block;z-index:0;touch-action:none;}
 
@@ -757,6 +758,25 @@ body.immersive #inst-picker,body.immersive #btn-add-wrap{opacity:0;pointer-event
     #page-tonal .clips-controls { grid-template-columns: 1fr 1fr; }
 }
 
+/* Tablet / mobile: shrink the per-module topbars so the row fits without
+   the buttons feeling oversized. Scoped to module topbars so the desktop
+   layout stays untouched at >= 1100px. */
+@media (max-width: 1100px) {
+    #sg-topbar, #sc-topbar, #fc-topbar { height: 38px; padding: 0 8px; gap: 6px; }
+    #sg-topbar button, #sc-topbar button, #fc-topbar button { padding: 4px 9px; font-size: 11px; border-radius: 6px; }
+    #sg-topbar #sg-title, #sc-topbar #sc-title, #fc-topbar #fc-title { font-size: 11px; letter-spacing: 1px; }
+    #sg-topbar .topbar-emma-logo, #sc-topbar .topbar-emma-logo, #fc-topbar .topbar-emma-logo { height: 22px; }
+    #sg-topbar .sg-mode-btn { padding: 4px 9px; font-size: 11px; }
+    .emma-build-tag { font-size: 9px; bottom: 18px; }
+}
+@media (max-width: 720px) {
+    #sg-topbar, #sc-topbar, #fc-topbar { height: 34px; padding: 0 6px; gap: 4px; }
+    #sg-topbar button, #sc-topbar button, #fc-topbar button { padding: 3px 7px; font-size: 10px; }
+    #sg-topbar .sg-mode-btn { padding: 3px 7px; font-size: 10px; }
+    #sg-topbar #sg-title, #sc-topbar #sc-title, #fc-topbar #fc-title { font-size: 10px; }
+    #sg-topbar .topbar-emma-logo, #sc-topbar .topbar-emma-logo, #fc-topbar .topbar-emma-logo { height: 18px; opacity: .55; }
+}
+
 /* ===== MODULE LOADING OVERLAY ===== */
 .emma-loading { position: absolute; inset: 0; background: rgba(8,8,18,.88); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 200; gap: 14px; pointer-events: none; }
 .emma-loading-spinner { width: 38px; height: 38px; border: 3px solid rgba(255,255,255,.1); border-top-color: #3cb4ff; border-radius: 50%; animation: emma-spin .75s linear infinite; }
@@ -822,7 +842,7 @@ body.immersive #inst-picker,body.immersive #btn-add-wrap{opacity:0;pointer-event
 <div id="emma-instructor-bar"></div>
 <!-- Module credit (fixed bottom-right, hidden on landing) -->
 <div id="module-credit" class="module-credit" style="display:none">...By Francesco Richichi</div>
-<span class="emma-build-tag" title="Build identifier — short hash of the latest commit shipped on this branch">build:345ce48</span>
+<span class="emma-build-tag" title="Build identifier — short hash of the latest commit shipped on this branch">build:4224d99</span>
 
 <!-- Help modal (shared across all modules) -->
 <div id="help-modal">
