@@ -6012,11 +6012,12 @@ function sg_initIfNeeded() {
       sg_state.mode = 'ready';
       sg_state.currentPts = [];
       sg_state.distanceDragging = false;
-      // First time entering Distance mode: drop the marker at yN=0 (score 15,
-      // over the windshield) so the user can immediately grab the laser line
-      // and drag it. Don't override an existing position.
-      if (entering && sg_state.distanceY == null && !sg_state.distanceNoSound) {
+      // Every time we enter Distance mode, drop the marker back to yN=0
+      // (score 15, over windshield). Overrides on T/L/Score/Size are kept
+      // so the user's calibration work persists across mode switches.
+      if (entering) {
         sg_state.distanceY = 0;
+        sg_state.distanceNoSound = false;
       }
       sg_updateUI();
       sg_drawFrame(sg_curT || 0);
