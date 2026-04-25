@@ -1208,13 +1208,13 @@ body.immersive #inst-picker,body.immersive #btn-add-wrap{opacity:0;pointer-event
         <div class="tb-dd-sep" style="margin-top:7px"></div>
         <div class="tb-dd-section">IMAGE</div>
         <label class="tb-dd-row">&#8597; Offset Y (px)
-          <input type="number" class="tb-dd-inp" id="sc-dc-oy" value="100" step="1">
+          <input type="number" class="tb-dd-inp" id="sc-dc-oy" value="150" step="1">
         </label>
         <label class="tb-dd-row">&#8596; Scale W (%)
           <input type="number" class="tb-dd-inp" id="sc-dc-sx" value="500" min="10" max="2000" step="1">
         </label>
         <label class="tb-dd-row">&#8645; Scale H (%)
-          <input type="number" class="tb-dd-inp" id="sc-dc-sy" value="450" min="10" max="2000" step="1">
+          <input type="number" class="tb-dd-inp" id="sc-dc-sy" value="500" min="10" max="2000" step="1">
         </label>
         <div class="tb-dd-sep"></div>
         <button class="tb-dd-reset" id="sc-dc-reset">&#8635; Reset</button>
@@ -1293,13 +1293,13 @@ body.immersive #inst-picker,body.immersive #btn-add-wrap{opacity:0;pointer-event
         <div class="tb-dd-sep" style="margin-top:7px"></div>
         <div class="tb-dd-section">IMAGE</div>
         <label class="tb-dd-row">&#8597; Offset Y (px)
-          <input type="number" class="tb-dd-inp" id="fc-dc-oy" value="100" step="1">
+          <input type="number" class="tb-dd-inp" id="fc-dc-oy" value="150" step="1">
         </label>
         <label class="tb-dd-row">&#8596; Scale W (%)
           <input type="number" class="tb-dd-inp" id="fc-dc-sx" value="500" min="10" max="2000" step="1">
         </label>
         <label class="tb-dd-row">&#8645; Scale H (%)
-          <input type="number" class="tb-dd-inp" id="fc-dc-sy" value="450" min="10" max="2000" step="1">
+          <input type="number" class="tb-dd-inp" id="fc-dc-sy" value="500" min="10" max="2000" step="1">
         </label>
         <div class="tb-dd-sep"></div>
         <button class="tb-dd-reset" id="fc-dc-reset">&#8635; Reset</button>
@@ -1376,13 +1376,13 @@ body.immersive #inst-picker,body.immersive #btn-add-wrap{opacity:0;pointer-event
         <div class="tb-dd-sep" style="margin-top:7px"></div>
         <div class="tb-dd-section">IMAGE</div>
         <label class="tb-dd-row">&#8597; Offset Y (px)
-          <input type="number" class="tb-dd-inp" id="sg-dc-oy" value="100" step="1">
+          <input type="number" class="tb-dd-inp" id="sg-dc-oy" value="150" step="1">
         </label>
         <label class="tb-dd-row">&#8596; Scale W (%)
           <input type="number" class="tb-dd-inp" id="sg-dc-sx" value="500" min="10" max="2000" step="1">
         </label>
         <label class="tb-dd-row">&#8645; Scale H (%)
-          <input type="number" class="tb-dd-inp" id="sg-dc-sy" value="450" min="10" max="2000" step="1">
+          <input type="number" class="tb-dd-inp" id="sg-dc-sy" value="500" min="10" max="2000" step="1">
         </label>
         <div class="tb-dd-section" style="margin-top:6px">DISPLAY</div>
         <label class="tb-dd-check">
@@ -7459,10 +7459,10 @@ function emma_initDashDropdown(pfx, overlayRef, redraw) {
   numInp(pfx+'-dc-sy', function(v){ sg_dashScaleY = Math.max(0.1, v/100); });
 
   document.getElementById(pfx+'-dc-reset').addEventListener('click', function(){
-    sg_dashOffsetY = 100; sg_dashScaleX = 5.0; sg_dashScaleY = 4.5;
-    document.getElementById(pfx+'-dc-oy').value = 100;
+    sg_dashOffsetY = 150; sg_dashScaleX = 5.0; sg_dashScaleY = 5.0;
+    document.getElementById(pfx+'-dc-oy').value = 150;
     document.getElementById(pfx+'-dc-sx').value = 500;
-    document.getElementById(pfx+'-dc-sy').value = 450;
+    document.getElementById(pfx+'-dc-sy').value = 500;
     redraw();
   });
 
