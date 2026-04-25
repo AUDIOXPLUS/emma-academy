@@ -843,7 +843,7 @@ body.immersive #inst-picker,body.immersive #btn-add-wrap{opacity:0;pointer-event
 <div id="emma-instructor-bar"></div>
 <!-- Module credit (fixed bottom-right, hidden on landing) -->
 <div id="module-credit" class="module-credit" style="display:none">...By Francesco Richichi</div>
-<span class="emma-build-tag" title="Build identifier — short hash of the latest commit shipped on this branch">build:057acb9</span>
+<span class="emma-build-tag" title="Build identifier — short hash of the latest commit shipped on this branch">build:71dbc92</span>
 
 <!-- Help modal (shared across all modules) -->
 <div id="help-modal">
@@ -6946,9 +6946,12 @@ function sg_drawFrame(t) {
   }
 
   // ── Distance tool overlay (4.3.1) ──
-  if (sg_state.toolMode === 'distance') {
-    sg_drawDistanceGuide(ctx, W, H, vL, vR, vC, sT, sB, d);
-  }
+  // Vertical landmark guide (LEVEL 15..1 ticks on the left edge) removed:
+  // the score box around the marker is the single source of truth for the
+  // calibration. Guide kept as dead code in case it's needed again.
+  // if (sg_state.toolMode === 'distance') {
+  //   sg_drawDistanceGuide(ctx, W, H, vL, vR, vC, sT, sB, d);
+  // }
 
   // Eye level line
   ctx.strokeStyle = 'rgba(0,229,204,.55)';
