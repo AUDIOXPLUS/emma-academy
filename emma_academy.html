@@ -6564,9 +6564,11 @@ var sg_tuneSizeOverride  = null; // null = auto from SG_DISTANCE_CALIB, 0..1 (si
 //   score 10 ≈ yN 0.46
 //   below score 10 we keep prior placeholders until more data is provided.
 var SG_DISTANCE_CALIB = [
-  { yN: 0.00, T: 0.220, L: 0.55, Size: 0.10 },  // score 15 — over windshield
-  { yN: 0.24, T: 0.672, L: 0.75, Size: 0.33 },  // score 13 — windshield
-  { yN: 0.46, T: 0.768, L: 0.88, Size: 0.40 },  // score 10 — dashboard → windshield
+  { yN: 0.00, T: 0.453, L: 0.68, Size: 0.19 },  // score 15 — over windshield
+  { yN: 0.15, T: 0.555, L: 0.68, Size: 0.24 },  // score 14 — top of windshield
+  { yN: 0.24, T: 0.671, L: 0.68, Size: 0.29 },  // score 13 — windshield
+  { yN: 0.32, T: 0.722, L: 0.68, Size: 0.29 },  // score 12 — dashboard → windshield
+  { yN: 0.46, T: 0.770, L: 0.83, Size: 0.39 },  // score 10 — dashboard → windshield
   { yN: 1.00, T: 0.900, L: 1.00, Size: 1.00 }   // closest (placeholder, awaiting calibration)
 ];
 
@@ -6979,7 +6981,11 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
 
     ctx.save();
     ctx.beginPath();
-    ctx.rect(vL, sT, vR - vL, sH);         // clip to the scoring field
+    // Clip horizontally to the scoring columns, but extend vertically all
+    // the way to the canvas bottom so the laser line stays visible past
+    // sB (T > ~0.8). Same approach as the dashboard image clip: the
+    // canvas already excludes the transport bar via CSS.
+    ctx.rect(vL, sT, vR - vL, H - sT);
     ctx.clip();
 
     ctx.strokeStyle = g;
