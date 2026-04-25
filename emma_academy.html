@@ -6370,7 +6370,10 @@ function sg_applyDistanceStep(field, dir, big) {
   }
   if (field === 'T') {
     var stepT = (big ? 0.05 : 0.005) * dir;
-    entry.T = Math.max(0, Math.min(1, entry.T + stepT));
+    // Cap at 2.0: T=1 puts the line at sB+extra (≈ canvas bottom); some
+    // calibrations need to push the line further down past the visible
+    // floor for the closest scores, so we leave headroom up to 2.0.
+    entry.T = Math.max(0, Math.min(2, entry.T + stepT));
   } else if (field === 'L') {
     var stepL = (big ? 10 : 1) * dir;
     var newL = Math.round(entry.L * 100) + stepL;
