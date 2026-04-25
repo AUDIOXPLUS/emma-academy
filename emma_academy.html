@@ -6255,10 +6255,10 @@ function sg_updateDraggedZone(pCanvas) {
 }
 
 // Hit-test the ◀/▶ stepper arrows in the distance score box. Returns
-// {field:'yN'|'T'|'L', dir:-1|+1} or null.
+// {field:'T'|'L'|'Score'|'Size', dir:-1|+1} or null.
 function sg_distanceArrowHitTest(p) {
   if (!_sg_distance_arrows) return null;
-  var fields = ['yN', 'T', 'L'];
+  var fields = ['T', 'L', 'Score', 'Size'];
   for (var i = 0; i < fields.length; i++) {
     var f = fields[i];
     var dn = _sg_distance_arrows[f + '_dn'];
@@ -6275,11 +6275,7 @@ function sg_distanceArrowHitTest(p) {
 // from the currently displayed value when no override is active yet.
 function sg_applyDistanceStep(field, dir, big) {
   var snap = _sg_distance_arrows || {};
-  if (field === 'yN') {
-    var step = (big ? 0.05 : 0.005) * dir;
-    var base = (sg_tuneYNOverride != null) ? sg_tuneYNOverride : (snap.yN != null ? snap.yN : 0.5);
-    sg_tuneYNOverride = Math.max(0, Math.min(1, base + step));
-  } else if (field === 'T') {
+  if (field === 'T') {
     var stepT = (big ? 0.05 : 0.005) * dir;
     var baseT = (sg_tuneTOverride != null) ? sg_tuneTOverride : (snap.T != null ? snap.T : 0.5);
     sg_tuneTOverride = Math.max(-1, Math.min(2, baseT + stepT));
@@ -6288,6 +6284,17 @@ function sg_applyDistanceStep(field, dir, big) {
     var baseLpct = (snap.L != null) ? snap.L : Math.round((sg_tuneLineLenFrac == null ? 1 : sg_tuneLineLenFrac) * 100);
     var newPct = Math.max(0, Math.min(100, baseLpct + stepL));
     sg_tuneLineLenFrac = newPct / 100;
+  } else if (field === 'Score') {
+    var stepSc = (big ? 5 : 1) * dir;
+    var baseSc = (sg_tuneScoreOverride != null) ? sg_tuneScoreOverride : (snap.Score != null ? snap.Score : 0);
+    sg_tuneScoreOverride = Math.max(0, Math.min(15, baseSc + stepSc));
+  } else if (field === 'Size') {
+    var stepSz = (big ? 20 : 5) * dir;                       // % of full size
+    var baseSzPct = (sg_tuneSizeOverride != null)
+      ? Math.round(sg_tuneSizeOverride * 100)
+      : (snap.Size != null ? snap.Size : 50);
+    var newSzPct = Math.max(0, Math.min(100, baseSzPct + stepSz));
+    sg_tuneSizeOverride = newSzPct / 100;
   }
 }
 
@@ -6326,10 +6333,12 @@ function sg_onPD(e) {
     sg_state.distanceY = yN;
     sg_state.distanceNoSound = false;
     sg_state.distanceDragging = true;
-    // Moving the marker resets the yN/T overrides so the new point shows
-    // its auto-computed values; the arrows can then fine-tune from there.
-    sg_tuneYNOverride = null;
-    sg_tuneTOverride  = null;
+    // Moving the marker resets the per-point overrides (T, Score, Size) so
+    // the new position starts from auto-computed values; the arrows can
+    // then fine-tune from there. L (line length) is global, not per-point.
+    sg_tuneTOverride     = null;
+    sg_tuneScoreOverride = null;
+    sg_tuneSizeOverride  = null;
     sg_canvas.setPointerCapture(e.pointerId);
     sg_drawFrame(sg_curT);
     sg_updateUI();
@@ -6478,9 +6487,10 @@ var sg_dashScaleX   = 5.0;   // horizontal scale factor (500%)
 var sg_dashScaleY   = 5.0;   // vertical scale factor (500%)
 var sg_eyeLevel     = 0.46;  // eye level position: 0.0=top … 1.0=bottom of scoring field
 // Tuning overrides (Distance laser): null = auto, otherwise force the value
-var sg_tuneYNOverride = null;
 var sg_tuneTOverride  = null;
 var sg_tuneLineLenFrac = 1.0;   // 0..1 fraction of full width
+var sg_tuneScoreOverride = null; // null = auto, 0..15 to force the score
+var sg_tuneSizeOverride  = null; // null = auto-perspective, 0..1 (sizeT) to force marker radius
 // Width-zone editing: when true the vertical zone lines become draggable.
 var sg_zonesEditable = false;
 var SG_WIDTH_ZONES_DEFAULT = [0.127, 0.338, 0.657, 0.746, 0.848, 0.931, 1.100];
@@ -6803,11 +6813,15 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
   var sH = sB - sT;
   var isNone = !!sg_state.distanceNoSound;
   var yN = isNone ? 0.97 : sg_state.distanceY;
-  // Tuning override for yN — lets user pin the marker at a specific score
-  // independently of the actual finger position.
-  if (!isNone && sg_tuneYNOverride != null) yN = Math.max(0, Math.min(1, sg_tuneYNOverride));
+  // yN is the marker's vertical position on the laser line — set by the
+  // pointer drag in sg_onPD/sg_onPM, no UI stepper needed.
   if (yN == null) return;
   var score = isNone ? 0 : sg_yToDistanceScore(yN);
+  // Score override: lets the user pin the displayed score (and the derived
+  // label) at a fixed value regardless of yN.
+  if (!isNone && sg_tuneScoreOverride != null) {
+    score = Math.max(0, Math.min(15, sg_tuneScoreOverride));
+  }
   var label = isNone ? 'No sound' : sg_distanceLabel(score);
 
   // ── Perspective projection ────────────────────────────────────────
@@ -6819,6 +6833,11 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
   var sizeT = (yN * SG_PERSP_K) > 0
     ? (yN / (SG_PERSP_K + yN * (1 - SG_PERSP_K)))
     : 0;
+  // Size override: lets the user pin the marker radius regardless of
+  // perspective. 0..1 maps to the same range as auto-computed sizeT.
+  if (!isNone && sg_tuneSizeOverride != null) {
+    sizeT = Math.max(0, Math.min(1, sg_tuneSizeOverride));
+  }
   var my    = sg_yNToScreenY(yN, sT, sH);
   var mx    = vC;
 
@@ -6984,9 +7003,11 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
   var descText  = label || '';
   var curT_     = (typeof lineT !== 'undefined' && !isNaN(lineT)) ? lineT : null;
   var curL_     = Math.max(0, Math.min(1, (sg_tuneLineLenFrac == null ? 1 : sg_tuneLineLenFrac)));
-  var yNStr = yN.toFixed(3);
   var TStr  = (curT_ == null) ? '—' : curT_.toFixed(3);
   var LStr  = Math.round(curL_ * 100) + '%';
+  var ScStr = String(score);                          // Score (0..15)
+  var SzPct = Math.round(sizeT * 100);
+  var SzStr = SzPct + '%';                            // Size (0..100%)
 
   var fScore = 13*d, fDesc = 11*d, fStep = 11*d;
   ctx.font = 'bold ' + fScore + 'px JetBrains Mono,monospace';
@@ -6995,13 +7016,13 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
   var w2 = descText ? ctx.measureText(descText).width : 0;
   ctx.font = 'bold ' + fStep + 'px JetBrains Mono,monospace';
   // Fixed column widths for the stepper rows
-  var labelW = 24*d, arrowW = 18*d, gap = 6*d, valueW = 56*d;
+  var labelW = 30*d, arrowW = 18*d, gap = 6*d, valueW = 56*d;
   var stepRowW = labelW + gap + arrowW + gap + valueW + gap + arrowW;
 
   var padX = 10*d, padY = 6*d, lineH = 15*d, stepLineH = 18*d;
   var lines = 1 + (descText ? 1 : 0);
   var rw = Math.max(w1, w2, stepRowW) + padX*2;
-  var rh = padY*2 + lineH*lines + stepLineH*3;
+  var rh = padY*2 + lineH*lines + stepLineH*4;
 
   // Place below the dot; flip above if it would clip the bottom
   var by = my + radius + 14*d;
@@ -7034,8 +7055,14 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
     ctx.fillText(descText, bx, cursorY - 3*d);
   }
 
-  // ── Stepper rows (yN / T / L) ────────────────────────────────────────────
-  _sg_distance_arrows = { yN: yN, T: curT_, L: Math.round(curL_ * 100) };
+  // ── Stepper rows (T / L / Score / Size) ──────────────────────────────────
+  // yN has no stepper: it's set by dragging the marker along the laser line.
+  _sg_distance_arrows = {
+    T:     curT_,
+    L:     Math.round(curL_ * 100),
+    Score: score,
+    Size:  SzPct
+  };
   var rowLeft = bx - stepRowW/2;
   var labelCx = rowLeft + labelW/2;
   var dnCx    = rowLeft + labelW + gap + arrowW/2;
@@ -7053,9 +7080,10 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
     ctx.fillStyle = 'rgba(0,229,204,.95)';
     ctx.fillText('◀', dnCx, rowMidY + fStep*0.35);
     // value (highlighted in yellow when override active, white otherwise)
-    var hasOverride = (name === 'yN' && sg_tuneYNOverride != null) ||
-                      (name === 'T'  && sg_tuneTOverride  != null) ||
-                      (name === 'L'  && sg_tuneLineLenFrac !== 1);
+    var hasOverride = (name === 'T'     && sg_tuneTOverride     != null) ||
+                      (name === 'L'     && sg_tuneLineLenFrac   !== 1)  ||
+                      (name === 'Score' && sg_tuneScoreOverride != null) ||
+                      (name === 'Size'  && sg_tuneSizeOverride  != null);
     ctx.fillStyle = hasOverride ? 'rgba(255,220,120,.95)' : 'rgba(255,255,255,.92)';
     ctx.fillText(valueTxt, valCx, rowMidY + fStep*0.35);
     // ▶
@@ -7066,9 +7094,10 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
     _sg_distance_arrows[name + '_dn'] = { x: dnCx - arrowW/2, y: rowMidY - hitH/2, w: arrowW, h: hitH };
     _sg_distance_arrows[name + '_up'] = { x: upCx - arrowW/2, y: rowMidY - hitH/2, w: arrowW, h: hitH };
   }
-  drawStepRow('yN', 'yN', yNStr);
-  drawStepRow('T',  'T',  TStr);
-  drawStepRow('L',  'L',  LStr);
+  drawStepRow('T',     'T',     TStr);
+  drawStepRow('L',     'L',     LStr);
+  drawStepRow('Score', 'Score', ScStr);
+  drawStepRow('Size',  'Size',  SzStr);
 
   ctx.restore();
 }
