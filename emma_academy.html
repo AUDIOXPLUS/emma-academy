@@ -6005,12 +6005,19 @@ function sg_initIfNeeded() {
   // Tool-mode segmented + No-sound (Distance tool, sez. 4.3.1)
   (function(){
     function setMode(m) {
+      var entering = (m === 'distance' && sg_state.toolMode !== 'distance');
       sg_state.toolMode = (m === 'distance') ? 'distance' : 'draw';
       // abort any in-progress shape when switching away from draw
       sg_state.drawing = false;
       sg_state.mode = 'ready';
       sg_state.currentPts = [];
       sg_state.distanceDragging = false;
+      // First time entering Distance mode: drop the marker at yN=0 (score 15,
+      // over the windshield) so the user can immediately grab the laser line
+      // and drag it. Don't override an existing position.
+      if (entering && sg_state.distanceY == null && !sg_state.distanceNoSound) {
+        sg_state.distanceY = 0;
+      }
       sg_updateUI();
       sg_drawFrame(sg_curT || 0);
     }
@@ -6349,14 +6356,10 @@ function sg_onPD(e) {
       }
     }
     // ── Drag the laser line ─────────────────────────────────────────────
-    // Accept the gesture only when the click lands on the line itself, or
-    // when there is no marker yet (first placement of the marker).
-    var onLine     = sg_distanceLineHit(p);
-    var noMarker   = (sg_state.distanceY == null && !sg_state.distanceNoSound);
-    if (!onLine && !noMarker) {
-      // Click outside the line and marker already placed — ignore.
-      return;
-    }
+    // Accept the gesture only when the click lands on the line itself.
+    // Clicks outside the line do nothing (the marker is auto-placed at
+    // yN=0 the first time Distance mode is entered).
+    if (!sg_distanceLineHit(p)) return;
     var yN = sg_canvasYToNorm(p.y);
     if (yN == null) return;
     sg_state.distanceY = yN;
