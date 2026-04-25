@@ -5890,6 +5890,10 @@ var _sg_z6_inds = null;
 // distance marker is drawn. {yN_dn,yN_up,T_dn,T_up,L_dn,L_up} → {x,y,w,h}.
 var _sg_distance_arrows = null;
 
+// Laser line bounds, refreshed every frame the line is drawn.
+// {y, xL, xR} — used by the hover-cursor logic and click-to-drag hit test.
+var _sg_distance_line = null;
+
 var sg_ax = null, sg_ab = null, sg_an = null, sg_src = null;
 var sg_playing = false, sg_curT = 0, sg_dur = 0;
 var sg_offset = 0, sg_startedAt = 0;
@@ -6254,6 +6258,19 @@ function sg_updateDraggedZone(pCanvas) {
   }
 }
 
+// Hit-test the laser line for hover-cursor and drag pickup. Returns true
+// when (p.x, p.y) is within the visible line strip, with a vertical
+// tolerance of ±12*d for comfortable pickup.
+function sg_distanceLineHit(p) {
+  if (!_sg_distance_line) return false;
+  var d = window.devicePixelRatio || 1;
+  var hitH = 12 * d;
+  return (p.y >= _sg_distance_line.y - hitH &&
+          p.y <= _sg_distance_line.y + hitH &&
+          p.x >= _sg_distance_line.xL &&
+          p.x <= _sg_distance_line.xR);
+}
+
 // Hit-test the ◀/▶ stepper arrows in the distance score box. Returns
 // {field:'T'|'L'|'Score'|'Size', dir:-1|+1} or null.
 function sg_distanceArrowHitTest(p) {
@@ -6331,16 +6348,25 @@ function sg_onPD(e) {
         return;
       }
     }
+    // ── Drag the laser line ─────────────────────────────────────────────
+    // Accept the gesture only when the click lands on the line itself, or
+    // when there is no marker yet (first placement of the marker).
+    var onLine     = sg_distanceLineHit(p);
+    var noMarker   = (sg_state.distanceY == null && !sg_state.distanceNoSound);
+    if (!onLine && !noMarker) {
+      // Click outside the line and marker already placed — ignore.
+      return;
+    }
     var yN = sg_canvasYToNorm(p.y);
     if (yN == null) return;
     sg_state.distanceY = yN;
     sg_state.distanceNoSound = false;
     sg_state.distanceDragging = true;
-    // Note: overrides (T, L, Score, Size) are intentionally NOT reset on
-    // click anymore — fine-tuning persists while the user moves the marker.
     sg_canvas.setPointerCapture(e.pointerId);
+    sg_canvas.style.cursor = 'grabbing';
     sg_drawFrame(sg_curT);
     sg_updateUI();
+    e.preventDefault();
     return;
   }
   if (sg_state.mode !== 'ready') return;
@@ -6358,8 +6384,20 @@ function sg_onPM(e) {
     return;
   }
   if (sg_state.toolMode === 'distance') {
-    if (!sg_state.distanceDragging) return;
     var p = sg_getCanvasPt(e);
+    if (!sg_state.distanceDragging) {
+      // Hover-cursor feedback: pointer over an arrow → 'pointer'; over
+      // the laser line → 'grab'; anywhere else → default.
+      var arrowHit = _sg_distance_arrows && sg_distanceArrowHitTest(p);
+      if (arrowHit) {
+        sg_canvas.style.cursor = 'pointer';
+      } else if (sg_distanceLineHit(p)) {
+        sg_canvas.style.cursor = 'grab';
+      } else {
+        sg_canvas.style.cursor = '';
+      }
+      return;
+    }
     var yN = sg_canvasYToNorm(p.y);
     if (yN == null) return;
     sg_state.distanceY = yN;
@@ -6380,6 +6418,8 @@ function sg_onPU(e) {
   if (sg_state.toolMode === 'distance') {
     if (!sg_state.distanceDragging) return;
     sg_state.distanceDragging = false;
+    // Reset cursor; sg_onPM will re-set it on the next move based on hover.
+    sg_canvas.style.cursor = '';
     sg_drawFrame(sg_curT);
     sg_updateUI();
     return;
@@ -6844,6 +6884,10 @@ function sg_drawDistanceGuide(ctx, W, H, vL, vR, vC, sT, sB, d) {
 }
 
 function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
+  // Reset cached hit-bounds; sub-blocks below repopulate them when the
+  // corresponding visual is drawn this frame.
+  _sg_distance_arrows = null;
+  _sg_distance_line   = null;
   var sH = sB - sT;
   var isNone = !!sg_state.distanceNoSound;
   var yN = isNone ? 0.97 : sg_state.distanceY;
@@ -6923,6 +6967,9 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
     ctx.beginPath(); ctx.moveTo(planeL, lineY); ctx.lineTo(planeR, lineY); ctx.stroke();
 
     ctx.restore();
+
+    // Expose line bounds for hover-cursor + drag hit-test.
+    _sg_distance_line = { y: lineY, xL: planeL, xR: planeR };
   }
 
   // Shadow lying on the dashboard — flat, elongated along the surface
