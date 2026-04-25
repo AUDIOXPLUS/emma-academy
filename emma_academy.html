@@ -7021,18 +7021,28 @@ function sg_distanceMappingToString() {
   });
   lines.push('];');
 
-  // Append per-score laser shapes (only the ones that diverge from the
-  // straight-line default — keeps the snippet small and makes it obvious
-  // which scores have been customised).
-  var shapeKeys = Object.keys(sg_laserShapes)
+  // Append the per-score laser shapes table. Every score that the user
+  // has touched OR that has a hardcoded default in SG_LASER_SHAPES is
+  // dumped, so pasting the snippet back into the source replaces the
+  // baked-in defaults wholesale (no need to merge by hand).
+  var shapeScoreSet = {};
+  Object.keys(sg_laserShapes).forEach(function(k){ shapeScoreSet[parseInt(k,10)] = true; });
+  Object.keys(SG_LASER_SHAPES).forEach(function(k){ shapeScoreSet[parseInt(k,10)] = true; });
+  var shapeKeys = Object.keys(shapeScoreSet)
     .map(function(k){ return parseInt(k, 10); })
-    .filter(function(k){ return sg_laserShapeable(k) && sg_laserShapeIsCustom(sg_laserShapes[k]); })
+    .filter(function(k){ return sg_laserShapeable(k); })
     .sort(function(a, b){ return a - b; });
-  if (shapeKeys.length) {
-    lines.push('');
-    lines.push('var SG_LASER_SHAPES = {');
+  lines.push('');
+  lines.push('// Paste this block over the SG_LASER_SHAPES literal in emma_academy.html');
+  lines.push('// to ship the current calibration as the new defaults.');
+  lines.push('var SG_LASER_SHAPES = {');
+  if (shapeKeys.length === 0) {
+    lines.push('  /* no laser shapes defined yet — edit a few scores 4..12 */');
+  } else {
     shapeKeys.forEach(function(sc, si) {
-      var s = sg_laserShapes[sc];
+      // Resolve the active shape (user override > hardcoded default).
+      var s = sg_laserShapes[sc] || sg_cloneLaserShape(SG_LASER_SHAPES[sc]);
+      if (!s) return;
       var rows = s.pts.map(function(p){
         return '{ xN: ' + p.xN.toFixed(3) +
                ', dyN: ' + (p.dyN || 0).toFixed(3) +
@@ -7042,8 +7052,8 @@ function sg_distanceMappingToString() {
       var comma = (si < shapeKeys.length - 1) ? ',' : '';
       lines.push('  ' + sc + ': { pts: [ ' + rows + ' ] }' + comma + lbl);
     });
-    lines.push('};');
   }
+  lines.push('};');
 
   return lines.join('\n');
 }
@@ -7103,6 +7113,10 @@ function sg_distanceAutoFromYN(yN) {
 // points are user-added. visibleAfter on a point gates rendering of the
 // segment that *starts* at that point — turn it off to simulate the line
 // passing behind a dashboard element.
+//
+// Segments are smoothed with a centripetal Catmull-Rom curve (converted
+// to cubic Bezier for canvas rendering) so the line bends naturally
+// through each waypoint instead of breaking at sharp angles.
 // ─────────────────────────────────────────────────────────────────────────
 var SG_LASER_SHAPEABLE_MIN = 4;
 var SG_LASER_SHAPEABLE_MAX = 12;
@@ -7118,16 +7132,59 @@ function sg_defaultLaserShape() {
     ]
   };
 }
-// Per-score shapes; populated lazily so we never carry a default object
-// for scores that the user hasn't touched (keeps the JSON dumped by
-// "Copy distance mapping" lean and clearly shows which scores diverge
-// from the straight-line default).
+// Hardcoded laser-shape defaults baked into this build. Paste the
+// SG_LASER_SHAPES block dumped by "Copy distance mapping" into this
+// object literal to ship the user's calibration as new defaults — the
+// values are cloned into sg_laserShapes on first lookup so per-project
+// edits keep overriding them. Keep the structure {[score]: { pts: [...] }}.
+var SG_LASER_SHAPES = {
+  // example:
+  // 9: { pts: [
+  //   { xN: -0.5, dyN: 0, visibleAfter: true  },
+  //   { xN: -0.1, dyN: -0.04, visibleAfter: false },
+  //   { xN:  0.1, dyN: -0.04, visibleAfter: true  },
+  //   { xN:  0.5, dyN: 0, visibleAfter: true  }
+  // ] }
+};
+// Per-score shapes; populated lazily from SG_LASER_SHAPES on first lookup
+// (so the snapshot dumped by "Copy distance mapping" stays lean and
+// makes it obvious which scores diverge from the straight default).
 var sg_laserShapes = {};
+// Deep-clone a shape and force the endpoints back to ±0.5 with fixed:true
+// so a tampered defaults block can't break the renderer's invariants.
+function sg_cloneLaserShape(src) {
+  if (!src || !Array.isArray(src.pts) || src.pts.length < 2) return null;
+  var pts = src.pts.map(function(p, i) {
+    return {
+      xN:  Math.max(-0.5, Math.min(0.5, +p.xN)),
+      dyN: Math.max(-0.5, Math.min(0.5, +(p.dyN || 0))),
+      visibleAfter: p.visibleAfter !== false,
+      fixed: false
+    };
+  });
+  pts[0].xN = -0.5; pts[0].fixed = true;
+  pts[pts.length - 1].xN = +0.5; pts[pts.length - 1].fixed = true;
+  return { pts: pts };
+}
 function sg_getLaserShape(score, createIfMissing) {
   if (!sg_laserShapeable(score)) return null;
   var s = sg_laserShapes[score];
-  if (!s && createIfMissing) {
-    s = sg_laserShapes[score] = sg_defaultLaserShape();
+  if (!s) {
+    // Fall back to the hardcoded default (cloned so live edits don't
+    // mutate the source object). Only materialise into sg_laserShapes
+    // when the caller will actually edit, otherwise the dump from
+    // "Copy distance mapping" would echo every default back unchanged.
+    var def = SG_LASER_SHAPES[score];
+    if (def) {
+      var cloned = sg_cloneLaserShape(def);
+      if (createIfMissing) {
+        s = sg_laserShapes[score] = cloned;
+      } else {
+        return cloned;
+      }
+    } else if (createIfMissing) {
+      s = sg_laserShapes[score] = sg_defaultLaserShape();
+    }
   }
   return s || null;
 }
@@ -7187,6 +7244,31 @@ function sg_laserWaypointHit(p, score) {
     }
   }
   return null;
+}
+// Stroke a smooth Catmull-Rom curve through the waypoints, segment by
+// segment, skipping any segment whose starting point has visibleAfter
+// turned off. Each visible segment is drawn as a cubic Bezier whose
+// control points are derived from the two surrounding waypoints — this
+// gives a continuously-tangent curve through every point. The two
+// endpoints use mirrored "phantom" neighbours so the curve approaches
+// them with zero curvature (no bowing past the line edges).
+function sg_strokeLaserCurve(ctx, screenPts, shapePts) {
+  if (screenPts.length < 2) return;
+  for (var i = 0; i < screenPts.length - 1; i++) {
+    if (shapePts[i].visibleAfter === false) continue;
+    var p1 = screenPts[i], p2 = screenPts[i + 1];
+    var p0 = (i > 0) ? screenPts[i - 1] : { x: 2*p1.x - p2.x, y: 2*p1.y - p2.y };
+    var p3 = (i + 2 < screenPts.length) ? screenPts[i + 2] : { x: 2*p2.x - p1.x, y: 2*p2.y - p1.y };
+    // Catmull-Rom → Bezier (uniform, tension 0.5)
+    var c1x = p1.x + (p2.x - p0.x) / 6;
+    var c1y = p1.y + (p2.y - p0.y) / 6;
+    var c2x = p2.x - (p3.x - p1.x) / 6;
+    var c2y = p2.y - (p3.y - p1.y) / 6;
+    ctx.beginPath();
+    ctx.moveTo(p1.x, p1.y);
+    ctx.bezierCurveTo(c1x, c1y, c2x, c2y, p2.x, p2.y);
+    ctx.stroke();
+  }
 }
 
 // Width-zone editing: when true the vertical zone lines become draggable.
@@ -7606,25 +7688,20 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
     ctx.rect(vL, sT, vR - vL, H - sT);
     ctx.clip();
 
-    // Polyline rendering: each visible segment is drawn twice (wide
+    // Curve rendering: each visible segment is drawn twice (wide
     // translucent halo + thin core stroke) so the gradient still gives
     // the "soft tip / bright centre" laser feel even when the line is
     // bent. Segments with visibleAfter:false on their starting point are
     // skipped entirely — that's how the line "disappears" behind the
-    // steering wheel and similar dashboard elements.
+    // steering wheel and similar dashboard elements. Smoothing is via
+    // Catmull-Rom (sg_strokeLaserCurve) so adjacent waypoints flow into
+    // each other instead of meeting at a sharp angle.
+    var screenPts = shapePts.map(laserPx);
     function strokeSegments(lineWidth, alpha) {
       ctx.strokeStyle = g;
       ctx.lineWidth = lineWidth;
       ctx.globalAlpha = alpha;
-      for (var si = 0; si < shapePts.length - 1; si++) {
-        var a = shapePts[si], b = shapePts[si + 1];
-        if (a.visibleAfter === false) continue;
-        var pa = laserPx(a), pb = laserPx(b);
-        ctx.beginPath();
-        ctx.moveTo(pa.x, pa.y);
-        ctx.lineTo(pb.x, pb.y);
-        ctx.stroke();
-      }
+      sg_strokeLaserCurve(ctx, screenPts, shapePts);
       ctx.globalAlpha = 1;
     }
     strokeSegments((3.5 + 3 * lineTClamped) * d, 0.35);
@@ -7642,21 +7719,20 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
       sg_laserSelected = null;
     }
     if (sg_laserEditMode && canShape) {
-      // Dim outline of any hidden segments so the user can see where they
-      // exist while editing — they're transparent in the live laser pass.
+      // Dim dashed curve where segments are hidden so the user can still
+      // see their geometry while editing. Uses the same Catmull-Rom
+      // smoothing as the live laser, but inverted: only the segments
+      // marked visibleAfter:false are stroked here.
       ctx.save();
       ctx.setLineDash([4*d, 4*d]);
       ctx.strokeStyle = 'rgba(255,200,80,.35)';
       ctx.lineWidth = 1*d;
-      for (var sj = 0; sj < shapePts.length - 1; sj++) {
-        var aa = shapePts[sj], bb = shapePts[sj + 1];
-        if (aa.visibleAfter !== false) continue;
-        var ppa = laserPx(aa), ppb = laserPx(bb);
-        ctx.beginPath();
-        ctx.moveTo(ppa.x, ppa.y);
-        ctx.lineTo(ppb.x, ppb.y);
-        ctx.stroke();
-      }
+      var hiddenShape = shapePts.map(function(p, idx) {
+        // Flip visibleAfter so sg_strokeLaserCurve renders only the
+        // segments that the live pass skipped.
+        return { xN: p.xN, dyN: p.dyN, visibleAfter: !(p.visibleAfter !== false), fixed: p.fixed };
+      });
+      sg_strokeLaserCurve(ctx, screenPts, hiddenShape);
       ctx.restore();
       // Waypoint dots: fixed endpoints in dim teal, movable points in
       // bright teal, the active drag target highlighted yellow, and the
