@@ -282,8 +282,12 @@ body.immersive #inst-picker,body.immersive #btn-add-wrap{opacity:0;pointer-event
 #sg-topbar .sg-mode-btn { background: transparent; border: none; border-radius: 0; color: #888; padding: 5px 12px; font-size: 12px; font-weight: 600; }
 #sg-topbar .sg-mode-btn + .sg-mode-btn { border-left: 1px solid rgba(255,255,255,.1); }
 #sg-topbar .sg-mode-btn.active { color: #00e5cc; background: rgba(0,229,204,.14); }
-#sg-topbar #sg-btn-no-sound { background: rgba(255,255,255,.05); color: #bbb; border: 1px solid rgba(255,255,255,.15); padding: 5px 12px; font-size: 12px; }
-#sg-topbar #sg-btn-no-sound:hover { color: #fff; border-color: rgba(0,229,204,.4); }
+#sg-topbar #sg-btn-no-sound,
+#sg-topbar #sg-btn-copy-distance,
+#sg-topbar #sg-btn-reset-distance { background: rgba(255,255,255,.05); color: #bbb; border: 1px solid rgba(255,255,255,.15); padding: 5px 12px; font-size: 12px; }
+#sg-topbar #sg-btn-no-sound:hover,
+#sg-topbar #sg-btn-copy-distance:hover,
+#sg-topbar #sg-btn-reset-distance:hover { color: #fff; border-color: rgba(0,229,204,.4); }
 
 /* ===== TONAL ACCURACY PAGE ===== */
 #page-tonal { display: none; z-index: 1; position: fixed; inset: 0; overflow-y: auto; background: #0a0a14; }
@@ -1405,6 +1409,8 @@ body.immersive #inst-picker,body.immersive #btn-add-wrap{opacity:0;pointer-event
       <button class="sg-mode-btn" id="sg-mode-distance" data-mode="distance">Distance</button>
     </div>
     <button id="sg-btn-no-sound" style="display:none;">&#128263; No sound</button>
+    <button id="sg-btn-copy-distance" style="display:none;" title="Copy the current distance mapping (merged default + your edits) as a JS array literal you can paste back to make permanent">&#128203; Copy distance mapping</button>
+    <button id="sg-btn-reset-distance" style="display:none;" title="Clear all per-score distance calibration edits">&#8635; Reset distance edits</button>
     <button class="help-btn" onclick="showHelp('stage')" title="Help">?</button>
     <span class="topbar-credit">...By Francesco Richichi</span>
   </div>
@@ -6038,6 +6044,16 @@ function sg_initIfNeeded() {
       sg_updateUI();
       sg_drawFrame(sg_curT || 0);
     });
+    var copyDistBtn = document.getElementById('sg-btn-copy-distance');
+    if (copyDistBtn) copyDistBtn.addEventListener('click', sg_copyDistanceMapping);
+    var resetDistBtn = document.getElementById('sg-btn-reset-distance');
+    if (resetDistBtn) resetDistBtn.addEventListener('click', function(){
+      if (!Object.keys(sg_distanceUserCalib).length) return;
+      if (!confirm('Clear all per-score distance calibration edits?')) return;
+      sg_distanceUserCalib = {};
+      sg_distanceLiveT = null;
+      sg_drawFrame(sg_curT || 0);
+    });
   })();
 
   sg_updateUI();
@@ -6300,33 +6316,48 @@ function sg_distanceArrowHitTest(p) {
   return null;
 }
 
-// Apply a single ◀/▶ step to the given field. Initialises the override
-// from the currently displayed value when no override is active yet.
+// Apply a single ◀/▶ step to the given field.
+//   • Score: snaps the marker to the canonical yN of the new score so the
+//     user can step through 15 → 1 calibrating each landmark in turn.
+//   • T / L / Size: write into the per-score user calibration entry,
+//     creating it (seeded from the currently-rendered auto values at the
+//     score's canonical yN) on first edit so all three fields stay
+//     defined for the merged interpolation.
 function sg_applyDistanceStep(field, dir, big) {
   var snap = _sg_distance_arrows || {};
+  if (field === 'Score') {
+    var stepSc = (big ? 5 : 1) * dir;
+    var baseSc = (snap.Score != null) ? snap.Score : 8;
+    var newSc  = Math.max(1, Math.min(15, baseSc + stepSc));
+    var canon  = SG_DISTANCE_SCORE_YN[newSc];
+    if (canon != null) {
+      sg_state.distanceY = canon;
+      sg_state.distanceNoSound = false;
+    }
+    return;
+  }
+  var curScore = (snap.Score != null) ? snap.Score : null;
+  if (curScore == null || curScore < 1 || curScore > 15) return;
+  var canonYN = SG_DISTANCE_SCORE_YN[curScore];
+  if (canonYN == null) return;
+  var entry = sg_distanceUserCalib[curScore];
+  if (!entry) {
+    var auto = sg_distanceAutoFromYN(canonYN);
+    entry = sg_distanceUserCalib[curScore] = {
+      T: auto.T, L: auto.L, Size: auto.Size
+    };
+  }
   if (field === 'T') {
     var stepT = (big ? 0.05 : 0.005) * dir;
-    var baseT = (sg_tuneTOverride != null) ? sg_tuneTOverride : (snap.T != null ? snap.T : 0.5);
-    sg_tuneTOverride = Math.max(-1, Math.min(2, baseT + stepT));
+    entry.T = Math.max(0, Math.min(1, entry.T + stepT));
   } else if (field === 'L') {
     var stepL = (big ? 10 : 1) * dir;
-    // snap.L is the displayed L (in %, already auto-or-override)
-    var baseLpct = (sg_tuneLineLenFrac != null)
-      ? Math.round(sg_tuneLineLenFrac * 100)
-      : (snap.L != null ? snap.L : 100);
-    var newPct = Math.max(0, Math.min(100, baseLpct + stepL));
-    sg_tuneLineLenFrac = newPct / 100;
-  } else if (field === 'Score') {
-    var stepSc = (big ? 5 : 1) * dir;
-    var baseSc = (sg_tuneScoreOverride != null) ? sg_tuneScoreOverride : (snap.Score != null ? snap.Score : 0);
-    sg_tuneScoreOverride = Math.max(0, Math.min(15, baseSc + stepSc));
+    var newL = Math.round(entry.L * 100) + stepL;
+    entry.L = Math.max(0, Math.min(100, newL)) / 100;
   } else if (field === 'Size') {
-    var stepSz = (big ? 20 : 5) * dir;                       // % of full size
-    var baseSzPct = (sg_tuneSizeOverride != null)
-      ? Math.round(sg_tuneSizeOverride * 100)
-      : (snap.Size != null ? snap.Size : 50);
-    var newSzPct = Math.max(0, Math.min(100, baseSzPct + stepSz));
-    sg_tuneSizeOverride = newSzPct / 100;
+    var stepSz = (big ? 20 : 5) * dir;
+    var newSz = Math.round(entry.Size * 100) + stepSz;
+    entry.Size = Math.max(0, Math.min(100, newSz)) / 100;
   }
 }
 
@@ -6422,7 +6453,9 @@ function sg_onPM(e) {
       var newYN = sg_canvasYToNorm(newMarkerY);
       if (newYN != null) sg_state.distanceY = newYN;
       var newT = (newLineY - ds.horizonY) / ds.travel;
-      sg_tuneTOverride = Math.max(-1, Math.min(2, newT));
+      // Live T override only for the duration of the drag; on pointer-up
+      // we commit it into sg_distanceUserCalib at the resulting score.
+      sg_distanceLiveT = Math.max(0, Math.min(1, newT));
       sg_drawFrame(sg_curT);
     }
     return;
@@ -6442,6 +6475,21 @@ function sg_onPU(e) {
     if (!sg_state.distanceDragging) return;
     sg_state.distanceDragging = false;
     sg_state.distanceDragStart = null;
+    // Commit any live-T from the line drag into the per-score calib so it
+    // persists across mode switches and seeds the merged interpolation.
+    if (sg_distanceLiveT != null && sg_state.distanceY != null) {
+      var endScore = sg_yToDistanceScore(sg_state.distanceY);
+      if (endScore != null && SG_DISTANCE_SCORE_YN[endScore] != null) {
+        var prev = sg_distanceUserCalib[endScore];
+        var seed = prev || sg_distanceAutoFromYN(SG_DISTANCE_SCORE_YN[endScore]);
+        sg_distanceUserCalib[endScore] = {
+          T: Math.max(0, Math.min(1, sg_distanceLiveT)),
+          L: prev ? prev.L : seed.L,
+          Size: prev ? prev.Size : seed.Size
+        };
+      }
+    }
+    sg_distanceLiveT = null;
     // Reset cursor; sg_onPM will re-set it on the next move based on hover.
     sg_canvas.style.cursor = '';
     sg_drawFrame(sg_curT);
@@ -6549,11 +6597,29 @@ var sg_dashOffsetY  = 150;   // vertical offset in px (canvas pixels before DPR)
 var sg_dashScaleX   = 5.0;   // horizontal scale factor (500%)
 var sg_dashScaleY   = 5.0;   // vertical scale factor (500%)
 var sg_eyeLevel     = 0.46;  // eye level position: 0.0=top … 1.0=bottom of scoring field
-// Tuning overrides (Distance laser): null = auto, otherwise force the value
-var sg_tuneTOverride  = null;
-var sg_tuneLineLenFrac = null;  // null = auto from SG_DISTANCE_CALIB, 0..1 to force
-var sg_tuneScoreOverride = null; // null = auto, 0..15 to force the score
-var sg_tuneSizeOverride  = null; // null = auto from SG_DISTANCE_CALIB, 0..1 (sizeT) to force marker radius
+// Real-time per-score user calibration table for the Distance laser.
+// Keyed by score (1..15); each value is { T, L, Size } in [0..1].
+// Populated by the T/L/Size steppers in the calibration popover and merged
+// with the default SG_DISTANCE_CALIB by sg_buildMergedCalib so the
+// perspective effect builds up as the user calibrates each score from 15
+// down to 1. The "Copy distance mapping" button dumps the merged table
+// for paste-back into SG_DISTANCE_CALIB to make values permanent.
+var sg_distanceUserCalib = {};
+
+// Transient live-T override active only while the laser line is being
+// dragged with the pointer. Cleared on pointer-up after committing the
+// final value into sg_distanceUserCalib at the resulting score.
+var sg_distanceLiveT = null;
+
+// Canonical yN per score (boundary-based, matching SG_DISTANCE_Y). Used
+// both as the position the Score stepper snaps to and the yN at which
+// user calib entries are inserted when merged into the laser calibration.
+var SG_DISTANCE_SCORE_YN = {
+  15: 0.00,
+  14: 0.15, 13: 0.24, 12: 0.32, 11: 0.39, 10: 0.46,
+   9: 0.54,  8: 0.60,  7: 0.68,  6: 0.76,  5: 0.82,
+   4: 0.87,  3: 0.92,  2: 0.97,  1: 1.00
+};
 
 // Per-yN calibration table for the Distance laser. Each row gives the
 // auto-computed T (laser anchor), L (line length frac) and Size (marker
@@ -6572,13 +6638,92 @@ var SG_DISTANCE_CALIB = [
   { yN: 1.00, T: 0.900, L: 1.00, Size: 1.00 }   // closest (placeholder, awaiting calibration)
 ];
 
+// Build the merged calibration list: default SG_DISTANCE_CALIB overlaid by
+// sg_distanceUserCalib (keyed by score, mapped to canonical yN). When a
+// user entry shares a yN with a default entry the user values replace
+// the defaults; otherwise the user entry is inserted as a new point and
+// the list is sorted by yN.
+function sg_buildMergedCalib() {
+  var byKey = {};
+  SG_DISTANCE_CALIB.forEach(function(c) {
+    byKey[c.yN.toFixed(4)] = { yN: c.yN, T: c.T, L: c.L, Size: c.Size };
+  });
+  Object.keys(sg_distanceUserCalib).forEach(function(scKey) {
+    var sc = parseInt(scKey, 10);
+    var yN = SG_DISTANCE_SCORE_YN[sc];
+    if (yN == null) return;
+    var u = sg_distanceUserCalib[scKey];
+    if (u == null) return;
+    var key = yN.toFixed(4);
+    if (byKey[key]) {
+      byKey[key].T    = u.T;
+      byKey[key].L    = u.L;
+      byKey[key].Size = u.Size;
+    } else {
+      byKey[key] = { yN: yN, T: u.T, L: u.L, Size: u.Size };
+    }
+  });
+  var list = Object.keys(byKey).map(function(k) { return byKey[k]; });
+  list.sort(function(a, b) { return a.yN - b.yN; });
+  return list;
+}
+
+// Serialise the current merged calibration as a JS array literal that
+// matches the SG_DISTANCE_CALIB declaration. Used by the "Copy distance
+// mapping" button so the user can paste the result back to make the
+// edits permanent. Includes a per-row label derived from the score that
+// lands at the row's yN.
+function sg_distanceMappingToString() {
+  var calib = sg_buildMergedCalib();
+  var lines = ['var SG_DISTANCE_CALIB = ['];
+  calib.forEach(function(c, i) {
+    var sc = sg_yToDistanceScore(c.yN);
+    var lbl = (sc != null) ? SG_DISTANCE_LABELS[sc] : '';
+    var comment = (sc != null)
+      ? '  // score ' + sc + (lbl ? ' — ' + lbl : '')
+      : '';
+    var comma = (i < calib.length - 1) ? ',' : ' ';
+    lines.push(
+      '  { yN: ' + c.yN.toFixed(3) +
+      ', T: '    + c.T.toFixed(3) +
+      ', L: '    + c.L.toFixed(2) +
+      ', Size: ' + c.Size.toFixed(2) +
+      ' }' + comma + comment
+    );
+  });
+  lines.push('];');
+  return lines.join('\n');
+}
+
+function sg_copyDistanceMapping() {
+  var text = sg_distanceMappingToString();
+  var btn  = document.getElementById('sg-btn-copy-distance');
+  function flash(label) {
+    if (!btn) return;
+    var orig = btn.innerHTML;
+    btn.innerHTML = label;
+    setTimeout(function(){ btn.innerHTML = orig; }, 1400);
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text)
+      .then(function(){ flash('&#10003; Copied'); })
+      .catch(function(){
+        // Fallback: surface the text so the user can copy manually.
+        window.prompt('Copy distance mapping:', text);
+      });
+  } else {
+    window.prompt('Copy distance mapping:', text);
+  }
+}
+
 function sg_distanceAutoFromYN(yN) {
   var y = Math.max(0, Math.min(1, yN));
-  if (y <= SG_DISTANCE_CALIB[0].yN) {
-    var f = SG_DISTANCE_CALIB[0]; return { T: f.T, L: f.L, Size: f.Size };
+  var calib = sg_buildMergedCalib();
+  if (y <= calib[0].yN) {
+    var f = calib[0]; return { T: f.T, L: f.L, Size: f.Size };
   }
-  for (var i = 1; i < SG_DISTANCE_CALIB.length; i++) {
-    var a = SG_DISTANCE_CALIB[i - 1], b = SG_DISTANCE_CALIB[i];
+  for (var i = 1; i < calib.length; i++) {
+    var a = calib[i - 1], b = calib[i];
     if (y <= b.yN) {
       var k = (b.yN > a.yN) ? (y - a.yN) / (b.yN - a.yN) : 0;
       return {
@@ -6588,7 +6733,7 @@ function sg_distanceAutoFromYN(yN) {
       };
     }
   }
-  var l = SG_DISTANCE_CALIB[SG_DISTANCE_CALIB.length - 1];
+  var l = calib[calib.length - 1];
   return { T: l.T, L: l.L, Size: l.Size };
 }
 // Width-zone editing: when true the vertical zone lines become draggable.
@@ -6921,22 +7066,14 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
   // pointer drag in sg_onPD/sg_onPM, no UI stepper needed.
   if (yN == null) return;
   var score = isNone ? 0 : sg_yToDistanceScore(yN);
-  // Score override: lets the user pin the displayed score (and the derived
-  // label) at a fixed value regardless of yN.
-  if (!isNone && sg_tuneScoreOverride != null) {
-    score = Math.max(0, Math.min(15, sg_tuneScoreOverride));
-  }
   var label = isNone ? 'No sound' : sg_distanceLabel(score);
 
   // ── Auto values from per-yN calibration table ────────────────────
-  // Size and laser T (and L) are no longer derived from a fixed perspective
-  // formula: they're interpolated from SG_DISTANCE_CALIB so the user's
-  // measured calibration points become the new defaults.
+  // T, L and Size are interpolated from the merged calibration: default
+  // SG_DISTANCE_CALIB overlaid by sg_distanceUserCalib so user-set points
+  // become anchors for the perspective interpolation.
   var auto = sg_distanceAutoFromYN(yN);
-  var sizeT = auto.Size;
-  if (!isNone && sg_tuneSizeOverride != null) {
-    sizeT = Math.max(0, Math.min(1, sg_tuneSizeOverride));
-  }
+  var sizeT = Math.max(0, Math.min(1, auto.Size));
   var my    = sg_yNToScreenY(yN, sT, sH);
   var mx    = vC;
 
@@ -6959,14 +7096,15 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
     var extra    = (floorY - horizonY) * 0.25;   // headroom past the floor
     var travel   = (floorY - horizonY) + extra;
 
-    // T (laser depth) and L (line length frac) come from the per-yN
-    // calibration table SG_DISTANCE_CALIB. Overrides win when set.
-    var lineT = (sg_tuneTOverride != null) ? sg_tuneTOverride : auto.T;
+    // T (laser depth) and L (line length frac) come from the merged
+    // calibration (default + per-score user calib). During an active line
+    // drag, sg_distanceLiveT temporarily overrides T so the line follows
+    // the pointer pixel-perfect; the value gets committed into the user
+    // calib on pointer-up.
+    var lineT = (sg_distanceLiveT != null) ? sg_distanceLiveT : auto.T;
     var lineY = horizonY + travel * lineT;
     var lineTClamped = Math.max(0, Math.min(1, lineT));
-    var lenFrac = (sg_tuneLineLenFrac == null)
-      ? Math.max(0, Math.min(1, auto.L))
-      : Math.max(0, Math.min(1, sg_tuneLineLenFrac));
+    var lenFrac = Math.max(0, Math.min(1, auto.L));
     var halfLen = (vR - vL) * 0.5 * lenFrac;
     var planeL   = vC - halfLen;
     var planeR   = vC + halfLen;
@@ -7079,9 +7217,7 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
   var scoreText = score + ' / 15';
   var descText  = label || '';
   var curT_     = (typeof lineT !== 'undefined' && !isNaN(lineT)) ? lineT : null;
-  var curL_     = (sg_tuneLineLenFrac == null)
-    ? Math.max(0, Math.min(1, auto.L))
-    : Math.max(0, Math.min(1, sg_tuneLineLenFrac));
+  var curL_     = Math.max(0, Math.min(1, auto.L));
   var TStr  = (curT_ == null) ? '—' : curT_.toFixed(3);
   var LStr  = Math.round(curL_ * 100) + '%';
   var ScStr = String(score);                          // Score (0..15)
@@ -7158,11 +7294,9 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
     // ◀
     ctx.fillStyle = 'rgba(0,229,204,.95)';
     ctx.fillText('◀', dnCx, rowMidY + fStep*0.35);
-    // value (highlighted in yellow when override active, white otherwise)
-    var hasOverride = (name === 'T'     && sg_tuneTOverride     != null) ||
-                      (name === 'L'     && sg_tuneLineLenFrac   != null) ||
-                      (name === 'Score' && sg_tuneScoreOverride != null) ||
-                      (name === 'Size'  && sg_tuneSizeOverride  != null);
+    // value (highlighted in yellow when this score has a user calib entry)
+    var userEntry = (typeof score !== 'undefined') ? sg_distanceUserCalib[score] : null;
+    var hasOverride = !!userEntry && (name === 'T' || name === 'L' || name === 'Size');
     ctx.fillStyle = hasOverride ? 'rgba(255,220,120,.95)' : 'rgba(255,255,255,.92)';
     ctx.fillText(valueTxt, valCx, rowMidY + fStep*0.35);
     // ▶
@@ -7372,6 +7506,10 @@ function sg_updateUI() {
   }
   var noSoundBtn = document.getElementById('sg-btn-no-sound');
   if (noSoundBtn) noSoundBtn.style.display = isDistance ? 'inline-block' : 'none';
+  var copyDistBtn = document.getElementById('sg-btn-copy-distance');
+  if (copyDistBtn) copyDistBtn.style.display = isDistance ? 'inline-block' : 'none';
+  var resetDistBtn = document.getElementById('sg-btn-reset-distance');
+  if (resetDistBtn) resetDistBtn.style.display = isDistance ? 'inline-block' : 'none';
 }
 
 // ── Scoresheet ──
