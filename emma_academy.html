@@ -7065,6 +7065,15 @@ function sg_drawDashboard(ctx, W, H, vL, vR, vC, sT, sB, d, showZones) {
     ctx.textAlign = 'center';
     ctx.fillText(pts, gx_L, sT - 4*d);
     ctx.fillText(pts, gx_R, sT - 4*d);
+    // When editing, show the current zone fraction above each score so the
+    // user can read the exact value to copy back into the defaults table.
+    if (sg_zonesEditable) {
+      var fracTxt = SG_WIDTH_ZONES[i].toFixed(3);
+      ctx.font = 'bold ' + (8*d) + 'px JetBrains Mono,monospace';
+      ctx.fillStyle = 'rgba(255,220,120,0.95)';
+      ctx.fillText(fracTxt, gx_L, sT - 14*d);
+      ctx.fillText(fracTxt, gx_R, sT - 14*d);
+    }
     // Drag handles when editing — pill at the top of each line.
     if (sg_zonesEditable) {
       var hh = 18*d, hw_ = 9*d;
