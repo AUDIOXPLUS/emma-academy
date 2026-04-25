@@ -5878,6 +5878,10 @@ var sg_state = {
   distanceY: null,            // Y normalizzata 0..1 sul scoring field (sT..sB); null = not set
   distanceNoSound: false,     // esplicito "No sound" → score 0
   distanceDragging: false,
+  // Snapshot taken at pointerdown so the unit drag preserves the original
+  // pointer ↔ marker ↔ line offsets:
+  //   { pointerY, markerYAtDown, lineYAtDown, horizonY, travel }
+  distanceDragStart: null,
   // Width-zone drag (when sg_zonesEditable): {idx, side: -1 left | +1 right}
   zoneDrag: null
 };
@@ -6358,10 +6362,17 @@ function sg_onPD(e) {
     }
     // ── Drag the laser line ─────────────────────────────────────────────
     // Accept the gesture only when the click lands on the line itself.
-    // Dragging adjusts T (laser depth) — the line follows the pointer
-    // exactly. yN, score and the marker position are NOT affected.
+    // Marker, line and score box move as one unit: each pointer Δy is
+    // applied identically to the marker and line, preserving their gap.
     if (!sg_distanceLineHit(p)) return;
     sg_state.distanceDragging = true;
+    sg_state.distanceDragStart = {
+      pointerY:    p.y,
+      markerYAtDown: _sg_distance_line.markerY,
+      lineYAtDown:   _sg_distance_line.y,
+      horizonY:    _sg_distance_line.horizonY,
+      travel:      _sg_distance_line.travel
+    };
     sg_canvas.setPointerCapture(e.pointerId);
     sg_canvas.style.cursor = 'grabbing';
     e.preventDefault();
@@ -6396,10 +6407,17 @@ function sg_onPM(e) {
       }
       return;
     }
-    // Active drag: convert pointer Y → laser T directly so the line
-    // tracks the pointer exactly. yN/score/marker unaffected.
-    if (_sg_distance_line && _sg_distance_line.travel > 0) {
-      var newT = (p.y - _sg_distance_line.horizonY) / _sg_distance_line.travel;
+    // Active drag: shift marker AND line by the same Δy as the pointer.
+    // yN derives from the new marker Y, T-override from the new line Y,
+    // so circle, line and score box translate together as one unit.
+    var ds = sg_state.distanceDragStart;
+    if (ds && ds.travel > 0) {
+      var dy = p.y - ds.pointerY;
+      var newMarkerY = ds.markerYAtDown + dy;
+      var newLineY   = ds.lineYAtDown   + dy;
+      var newYN = sg_canvasYToNorm(newMarkerY);
+      if (newYN != null) sg_state.distanceY = newYN;
+      var newT = (newLineY - ds.horizonY) / ds.travel;
       sg_tuneTOverride = Math.max(-1, Math.min(2, newT));
       sg_drawFrame(sg_curT);
     }
@@ -6419,6 +6437,7 @@ function sg_onPU(e) {
   if (sg_state.toolMode === 'distance') {
     if (!sg_state.distanceDragging) return;
     sg_state.distanceDragging = false;
+    sg_state.distanceDragStart = null;
     // Reset cursor; sg_onPM will re-set it on the next move based on hover.
     sg_canvas.style.cursor = '';
     sg_drawFrame(sg_curT);
@@ -6969,11 +6988,13 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
 
     ctx.restore();
 
-    // Expose line bounds + the horizon/travel constants so the pointer
-    // handlers can convert pointer Y → T directly while dragging.
+    // Expose everything the pointer handlers need to drag marker + line
+    // as one unit: the line bounds, the horizon/travel constants and the
+    // current marker Y so we can preserve the line ↔ marker gap.
     _sg_distance_line = {
       y: lineY, xL: planeL, xR: planeR,
-      horizonY: horizonY, travel: travel
+      horizonY: horizonY, travel: travel,
+      markerY: my
     };
   }
 
