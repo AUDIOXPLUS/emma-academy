@@ -6173,6 +6173,7 @@ function sg_onPD(e) {
     var p = sg_getCanvasPt(e);
     var yN = sg_canvasYToNorm(p.y);
     if (yN == null) return;
+    if (yN < SG_DISTANCE_Y[0]) yN = SG_DISTANCE_Y[0];
     sg_state.distanceY = yN;
     sg_state.distanceNoSound = false;
     sg_state.distanceDragging = true;
@@ -6195,6 +6196,7 @@ function sg_onPM(e) {
     var p = sg_getCanvasPt(e);
     var yN = sg_canvasYToNorm(p.y);
     if (yN == null) return;
+    if (yN < SG_DISTANCE_Y[0]) yN = SG_DISTANCE_Y[0];
     sg_state.distanceY = yN;
     sg_drawFrame(sg_curT);
     return;
