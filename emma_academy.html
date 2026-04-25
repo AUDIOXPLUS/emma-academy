@@ -1391,17 +1391,6 @@ body.immersive #inst-picker,body.immersive #btn-add-wrap{opacity:0;pointer-event
         <label class="tb-dd-row" id="sg-dc-eye-row">&#9135; EYE pos (%)
           <input type="number" class="tb-dd-inp" id="sg-dc-el" value="46" min="0" max="100" step="1">
         </label>
-        <div class="tb-dd-section" style="margin-top:8px">TUNING (Distance laser)</div>
-        <label class="tb-dd-row">yN
-          <input type="number" class="tb-dd-inp" id="sg-tune-yn" placeholder="auto" min="0" max="1" step="0.001" style="width:80px;">
-        </label>
-        <label class="tb-dd-row">T
-          <input type="number" class="tb-dd-inp" id="sg-tune-t"  placeholder="auto" min="-1" max="2" step="0.001" style="width:80px;">
-        </label>
-        <label class="tb-dd-row">Line length (%)
-          <input type="number" class="tb-dd-inp" id="sg-tune-len" value="100" min="0" max="100" step="1" style="width:80px;">
-        </label>
-        <button class="tb-dd-reset" id="sg-tune-clear" style="margin-top:4px">&#8635; Clear overrides</button>
         <div class="tb-dd-sep"></div>
         <label class="tb-dd-check">
           <input type="checkbox" id="sg-edit-zones"> Edit width zones (drag)
@@ -5897,6 +5886,10 @@ var sg_state = {
 // {L:{x,y,w,h}, R:{x,y,w,h}} — either key may be absent if that side is on-screen.
 var _sg_z6_inds = null;
 
+// Distance score box ▼/▲ stepper hit boxes, refreshed every frame the
+// distance marker is drawn. {yN_dn,yN_up,T_dn,T_up,L_dn,L_up} → {x,y,w,h}.
+var _sg_distance_arrows = null;
+
 var sg_ax = null, sg_ab = null, sg_an = null, sg_src = null;
 var sg_playing = false, sg_curT = 0, sg_dur = 0;
 var sg_offset = 0, sg_startedAt = 0;
@@ -5964,34 +5957,6 @@ function sg_initIfNeeded() {
     sgNumInput('sg-dc-sy', function(v){ sg_dashScaleY = Math.max(0.1, v/100); });
     sgNumInput('sg-dc-el', function(v){ sg_eyeLevel = Math.max(0, Math.min(1, v/100)); });
 
-    // Tuning overrides: empty input = auto, any number = force
-    function sgTuneInput(id, applyVal){
-      var el = document.getElementById(id);
-      if (!el) return;
-      function apply(){
-        if (el.value === '' || isNaN(parseFloat(el.value))) {
-          applyVal(null);
-        } else {
-          applyVal(parseFloat(el.value));
-        }
-        sg_drawFrame(sg_curT || 0);
-      }
-      el.addEventListener('input',  apply);
-      el.addEventListener('change', apply);
-    }
-    sgTuneInput('sg-tune-yn',  function(v){ sg_tuneYNOverride = v; });
-    sgTuneInput('sg-tune-t',   function(v){ sg_tuneTOverride  = v; });
-    sgTuneInput('sg-tune-len', function(v){
-      sg_tuneLineLenFrac = (v == null) ? 1.0 : Math.max(0, Math.min(1, v / 100));
-    });
-    var btnTuneClear = document.getElementById('sg-tune-clear');
-    if (btnTuneClear) btnTuneClear.addEventListener('click', function(){
-      sg_tuneYNOverride = null; sg_tuneTOverride = null; sg_tuneLineLenFrac = 1.0;
-      var ny = document.getElementById('sg-tune-yn');  if (ny) ny.value = '';
-      var nt = document.getElementById('sg-tune-t');   if (nt) nt.value = '';
-      var nl = document.getElementById('sg-tune-len'); if (nl) nl.value = 100;
-      sg_drawFrame(sg_curT || 0);
-    });
 
     var chkEditZones = document.getElementById('sg-edit-zones');
     if (chkEditZones) chkEditZones.addEventListener('change', function(){
@@ -6011,9 +5976,9 @@ function sg_initIfNeeded() {
 
     document.getElementById('sg-dc-reset').addEventListener('click', function(){
       sg_dashOffsetY = 150; sg_dashScaleX = 5.0; sg_dashScaleY = 5.0; sg_eyeLevel = 0.46;
-      document.getElementById('sg-dc-oy').value = 100;
+      document.getElementById('sg-dc-oy').value = 150;
       document.getElementById('sg-dc-sx').value = 500;
-      document.getElementById('sg-dc-sy').value = 450;
+      document.getElementById('sg-dc-sy').value = 500;
       document.getElementById('sg-dc-el').value = 46;
       document.getElementById('sg-dc-show-eye').checked = true;
       document.getElementById('sg-dc-eye-row').style.display = '';
@@ -6289,6 +6254,43 @@ function sg_updateDraggedZone(pCanvas) {
   }
 }
 
+// Hit-test the ◀/▶ stepper arrows in the distance score box. Returns
+// {field:'yN'|'T'|'L', dir:-1|+1} or null.
+function sg_distanceArrowHitTest(p) {
+  if (!_sg_distance_arrows) return null;
+  var fields = ['yN', 'T', 'L'];
+  for (var i = 0; i < fields.length; i++) {
+    var f = fields[i];
+    var dn = _sg_distance_arrows[f + '_dn'];
+    var up = _sg_distance_arrows[f + '_up'];
+    if (dn && p.x >= dn.x && p.x <= dn.x + dn.w && p.y >= dn.y && p.y <= dn.y + dn.h)
+      return { field: f, dir: -1 };
+    if (up && p.x >= up.x && p.x <= up.x + up.w && p.y >= up.y && p.y <= up.y + up.h)
+      return { field: f, dir: +1 };
+  }
+  return null;
+}
+
+// Apply a single ◀/▶ step to the given field. Initialises the override
+// from the currently displayed value when no override is active yet.
+function sg_applyDistanceStep(field, dir, big) {
+  var snap = _sg_distance_arrows || {};
+  if (field === 'yN') {
+    var step = (big ? 0.05 : 0.005) * dir;
+    var base = (sg_tuneYNOverride != null) ? sg_tuneYNOverride : (snap.yN != null ? snap.yN : 0.5);
+    sg_tuneYNOverride = Math.max(0, Math.min(1, base + step));
+  } else if (field === 'T') {
+    var stepT = (big ? 0.05 : 0.005) * dir;
+    var baseT = (sg_tuneTOverride != null) ? sg_tuneTOverride : (snap.T != null ? snap.T : 0.5);
+    sg_tuneTOverride = Math.max(-1, Math.min(2, baseT + stepT));
+  } else if (field === 'L') {
+    var stepL = (big ? 10 : 1) * dir;
+    var baseLpct = (snap.L != null) ? snap.L : Math.round((sg_tuneLineLenFrac == null ? 1 : sg_tuneLineLenFrac) * 100);
+    var newPct = Math.max(0, Math.min(100, baseLpct + stepL));
+    sg_tuneLineLenFrac = newPct / 100;
+  }
+}
+
 function sg_onPD(e) {
   // Width-zone editing intercepts the pointer first when active
   if (sg_zonesEditable && sg_state.toolMode === 'draw') {
@@ -6309,11 +6311,25 @@ function sg_onPD(e) {
   }
   if (sg_state.toolMode === 'distance') {
     var p = sg_getCanvasPt(e);
+    // ── Stepper arrows in the distance score box ────────────────────────
+    if (_sg_distance_arrows) {
+      var hitArrow = sg_distanceArrowHitTest(p);
+      if (hitArrow) {
+        sg_applyDistanceStep(hitArrow.field, hitArrow.dir, e.shiftKey);
+        sg_drawFrame(sg_curT);
+        e.preventDefault();
+        return;
+      }
+    }
     var yN = sg_canvasYToNorm(p.y);
     if (yN == null) return;
     sg_state.distanceY = yN;
     sg_state.distanceNoSound = false;
     sg_state.distanceDragging = true;
+    // Moving the marker resets the yN/T overrides so the new point shows
+    // its auto-computed values; the arrows can then fine-tune from there.
+    sg_tuneYNOverride = null;
+    sg_tuneTOverride  = null;
     sg_canvas.setPointerCapture(e.pointerId);
     sg_drawFrame(sg_curT);
     sg_updateUI();
@@ -6960,30 +6976,40 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
   ctx.moveTo(mx, my - radius*0.55); ctx.lineTo(mx, my + radius*0.55);
   ctx.stroke();
 
-  // Score + description rendered BELOW the dot, follows the marker
+  // Score + description rendered BELOW the dot, follows the marker.
+  // The box also shows three ◀ value ▶ stepper rows for fine-tuning yN, T
+  // and L; clicks on the arrows are picked up by sg_onPD via the
+  // _sg_distance_arrows hit boxes saved here every frame.
   var scoreText = score + ' / 15';
-  var descText = label || '';
-  // DEBUG temporaneo: mostra yN e T correnti
-  var debugT = (typeof lineT !== 'undefined' && !isNaN(lineT)) ? lineT : null;
-  var debugLen  = Math.round((sg_tuneLineLenFrac == null ? 1 : sg_tuneLineLenFrac) * 100);
-  var debugText = 'yN=' + yN.toFixed(3) + '  T=' + (debugT == null ? '—' : debugT.toFixed(3)) + '  L=' + debugLen + '%';
-  var fScore = 13*d, fDesc = 11*d, fDbg = 10*d;
+  var descText  = label || '';
+  var curT_     = (typeof lineT !== 'undefined' && !isNaN(lineT)) ? lineT : null;
+  var curL_     = Math.max(0, Math.min(1, (sg_tuneLineLenFrac == null ? 1 : sg_tuneLineLenFrac)));
+  var yNStr = yN.toFixed(3);
+  var TStr  = (curT_ == null) ? '—' : curT_.toFixed(3);
+  var LStr  = Math.round(curL_ * 100) + '%';
+
+  var fScore = 13*d, fDesc = 11*d, fStep = 11*d;
   ctx.font = 'bold ' + fScore + 'px JetBrains Mono,monospace';
   var w1 = ctx.measureText(scoreText).width;
   ctx.font = fDesc + 'px JetBrains Mono,monospace';
   var w2 = descText ? ctx.measureText(descText).width : 0;
-  ctx.font = fDbg + 'px JetBrains Mono,monospace';
-  var w3 = ctx.measureText(debugText).width;
-  var padX = 10*d, padY = 6*d, lineH = 15*d;
-  var lines = 1 + (descText ? 1 : 0) + 1;   // score + (desc) + debug
-  var rw = Math.max(w1, w2, w3) + padX*2;
-  var rh = padY*2 + lineH*lines;
-  // Place below the dot; flip above if it would clip the bottom of the scoring area
+  ctx.font = 'bold ' + fStep + 'px JetBrains Mono,monospace';
+  // Fixed column widths for the stepper rows
+  var labelW = 24*d, arrowW = 18*d, gap = 6*d, valueW = 56*d;
+  var stepRowW = labelW + gap + arrowW + gap + valueW + gap + arrowW;
+
+  var padX = 10*d, padY = 6*d, lineH = 15*d, stepLineH = 18*d;
+  var lines = 1 + (descText ? 1 : 0);
+  var rw = Math.max(w1, w2, stepRowW) + padX*2;
+  var rh = padY*2 + lineH*lines + stepLineH*3;
+
+  // Place below the dot; flip above if it would clip the bottom
   var by = my + radius + 14*d;
   if (by + rh > sB - 4*d) by = my - radius - 14*d - rh;
   var bx = mx;
   if (bx - rw/2 < vL + 4*d) bx = vL + 4*d + rw/2;
   if (bx + rw/2 > vR - 4*d) bx = vR - 4*d - rw/2;
+
   ctx.fillStyle = 'rgba(0,0,0,.78)';
   ctx.strokeStyle = 'rgba(' + color + ',.55)';
   ctx.lineWidth = 1*d;
@@ -6991,22 +7017,58 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
   if (ctx.roundRect) ctx.roundRect(bx - rw/2, by, rw, rh, 7*d);
   else ctx.rect(bx - rw/2, by, rw, rh);
   ctx.fill(); ctx.stroke();
+
+  // Score line
+  var cursorY = by + padY;
   ctx.textAlign = 'center';
-  var lineIdx = 0;
   ctx.font = 'bold ' + fScore + 'px JetBrains Mono,monospace';
   ctx.fillStyle = 'rgba(' + color + ',1)';
-  lineIdx++;
-  ctx.fillText(scoreText, bx, by + padY + lineH*lineIdx - 3*d);
+  cursorY += lineH;
+  ctx.fillText(scoreText, bx, cursorY - 3*d);
+
+  // Description line
   if (descText) {
     ctx.font = fDesc + 'px JetBrains Mono,monospace';
     ctx.fillStyle = 'rgba(255,255,255,.85)';
-    lineIdx++;
-    ctx.fillText(descText, bx, by + padY + lineH*lineIdx - 3*d);
+    cursorY += lineH;
+    ctx.fillText(descText, bx, cursorY - 3*d);
   }
-  ctx.font = fDbg + 'px JetBrains Mono,monospace';
-  ctx.fillStyle = 'rgba(255,220,120,.85)';
-  lineIdx++;
-  ctx.fillText(debugText, bx, by + padY + lineH*lineIdx - 3*d);
+
+  // ── Stepper rows (yN / T / L) ────────────────────────────────────────────
+  _sg_distance_arrows = { yN: yN, T: curT_, L: Math.round(curL_ * 100) };
+  var rowLeft = bx - stepRowW/2;
+  var labelCx = rowLeft + labelW/2;
+  var dnCx    = rowLeft + labelW + gap + arrowW/2;
+  var valCx   = rowLeft + labelW + gap + arrowW + gap + valueW/2;
+  var upCx    = rowLeft + labelW + gap + arrowW + gap + valueW + gap + arrowW/2;
+
+  function drawStepRow(name, labelTxt, valueTxt) {
+    cursorY += stepLineH;
+    var rowMidY = cursorY - stepLineH/2;
+    // Label (left, dim)
+    ctx.font = 'bold ' + fStep + 'px JetBrains Mono,monospace';
+    ctx.fillStyle = 'rgba(255,255,255,.55)';
+    ctx.fillText(labelTxt, labelCx, rowMidY + fStep*0.35);
+    // ◀
+    ctx.fillStyle = 'rgba(0,229,204,.95)';
+    ctx.fillText('◀', dnCx, rowMidY + fStep*0.35);
+    // value (highlighted in yellow when override active, white otherwise)
+    var hasOverride = (name === 'yN' && sg_tuneYNOverride != null) ||
+                      (name === 'T'  && sg_tuneTOverride  != null) ||
+                      (name === 'L'  && sg_tuneLineLenFrac !== 1);
+    ctx.fillStyle = hasOverride ? 'rgba(255,220,120,.95)' : 'rgba(255,255,255,.92)';
+    ctx.fillText(valueTxt, valCx, rowMidY + fStep*0.35);
+    // ▶
+    ctx.fillStyle = 'rgba(0,229,204,.95)';
+    ctx.fillText('▶', upCx, rowMidY + fStep*0.35);
+    // hit boxes — extend slightly above/below row centre for comfortable tap
+    var hitH = stepLineH;
+    _sg_distance_arrows[name + '_dn'] = { x: dnCx - arrowW/2, y: rowMidY - hitH/2, w: arrowW, h: hitH };
+    _sg_distance_arrows[name + '_up'] = { x: upCx - arrowW/2, y: rowMidY - hitH/2, w: arrowW, h: hitH };
+  }
+  drawStepRow('yN', 'yN', yNStr);
+  drawStepRow('T',  'T',  TStr);
+  drawStepRow('L',  'L',  LStr);
 
   ctx.restore();
 }
