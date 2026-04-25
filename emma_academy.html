@@ -5893,6 +5893,10 @@ var sg_state = {
   zoneDrag: null
 };
 
+// Off-screen zone-6 (7.5 pts) indicator hit boxes, refreshed every frame.
+// {L:{x,y,w,h}, R:{x,y,w,h}} — either key may be absent if that side is on-screen.
+var _sg_z6_inds = null;
+
 var sg_ax = null, sg_ab = null, sg_an = null, sg_src = null;
 var sg_playing = false, sg_curT = 0, sg_dur = 0;
 var sg_offset = 0, sg_startedAt = 0;
@@ -6233,15 +6237,29 @@ function sg_zoneHitTest(pCanvas) {
   var d = window.devicePixelRatio || 1;
   var W = sg_canvas.width;
   var vL = 34*d, vR = W - 34*d, vC = (vL + vR) / 2;
+  // Off-screen zone-6 indicators take priority — they're the only handle
+  // when the 7.5 lines have slid past the scoring-field edges.
+  if (_sg_z6_inds) {
+    var inBox = function(b){ return b && pCanvas.x >= b.x && pCanvas.x <= b.x + b.w && pCanvas.y >= b.y && pCanvas.y <= b.y + b.h; };
+    if (inBox(_sg_z6_inds.R)) return { idx: 6, side: +1 };
+    if (inBox(_sg_z6_inds.L)) return { idx: 6, side: -1 };
+  }
   var tol = SG_ZONE_HIT_PX * d;
   var best = null, bestDist = Infinity;
   for (var i = 0; i < SG_WIDTH_ZONES.length; i++) {
+    // Skip zone 6 on the side that's off-screen — handled above via indicators
+    var z6L_off = (i === 6 && _sg_z6_inds && _sg_z6_inds.L);
+    var z6R_off = (i === 6 && _sg_z6_inds && _sg_z6_inds.R);
     var hw = SG_WIDTH_ZONES[i] * (vC - vL);
     var lx = vC - hw, rx = vC + hw;
-    var dl = Math.abs(pCanvas.x - lx);
-    var dr = Math.abs(pCanvas.x - rx);
-    if (dl <= tol && dl < bestDist) { best = { idx: i, side: -1 }; bestDist = dl; }
-    if (dr <= tol && dr < bestDist) { best = { idx: i, side: +1 }; bestDist = dr; }
+    if (!z6L_off) {
+      var dl = Math.abs(pCanvas.x - lx);
+      if (dl <= tol && dl < bestDist) { best = { idx: i, side: -1 }; bestDist = dl; }
+    }
+    if (!z6R_off) {
+      var dr = Math.abs(pCanvas.x - rx);
+      if (dr <= tol && dr < bestDist) { best = { idx: i, side: +1 }; bestDist = dr; }
+    }
   }
   return best;
 }
@@ -6256,11 +6274,19 @@ function sg_updateDraggedZone(pCanvas) {
   var vL = 34*d, vR = W - 34*d, vC = (vL + vR) / 2;
   var hwMax = (vC - vL);
   var dx = (pCanvas.x - vC) * hit.side;     // distance from centre on the side
-  var newFrac = Math.max(0.001, Math.min(0.999, dx / hwMax));
-  // Keep monotonic: clamp between neighbours
+  // Zone 6 (7.5 pts) is allowed to travel off-screen (frac > 1.0);
+  // other zones stay inside the scoring field.
+  var newFrac = (hit.idx === 6)
+    ? Math.max(0.05, dx / hwMax)
+    : Math.max(0.001, Math.min(0.999, dx / hwMax));
+  // Keep monotonic: clamp between neighbours (no upper bound for zone 6)
   var lower = (hit.idx > 0) ? SG_WIDTH_ZONES[hit.idx - 1] + 0.005 : 0.005;
-  var upper = (hit.idx < SG_WIDTH_ZONES.length - 1) ? SG_WIDTH_ZONES[hit.idx + 1] - 0.005 : 0.999;
-  SG_WIDTH_ZONES[hit.idx] = Math.max(lower, Math.min(upper, newFrac));
+  if (hit.idx === 6) {
+    SG_WIDTH_ZONES[hit.idx] = Math.max(lower, newFrac);
+  } else {
+    var upper = (hit.idx < SG_WIDTH_ZONES.length - 1) ? SG_WIDTH_ZONES[hit.idx + 1] - 0.005 : 0.999;
+    SG_WIDTH_ZONES[hit.idx] = Math.max(lower, Math.min(upper, newFrac));
+  }
 }
 
 function sg_onPD(e) {
@@ -6271,7 +6297,12 @@ function sg_onPD(e) {
     if (hit) {
       sg_state.zoneDrag = hit;
       sg_canvas.setPointerCapture(e.pointerId);
-      sg_updateDraggedZone(pZ);
+      // When grabbing an off-screen zone-6 indicator, don't snap the line to
+      // the click point — keep the current off-screen frac and let the
+      // subsequent pointer-move update it.
+      var fromOffscreenInd = (hit.idx === 6 && _sg_z6_inds &&
+        ((hit.side === +1 && _sg_z6_inds.R) || (hit.side === -1 && _sg_z6_inds.L)));
+      if (!fromOffscreenInd) sg_updateDraggedZone(pZ);
       sg_drawFrame(sg_curT);
       return;
     }
@@ -7018,7 +7049,9 @@ function sg_drawDashboard(ctx, W, H, vL, vR, vC, sT, sB, d, showZones) {
   // ── Zone scoring lines (always on top) ────────────────────────────────────
   if (showZones) {
   ctx.globalAlpha = 1.0;
-  var indY = sT + 22*d; // y position for off-screen indicators
+  _sg_z6_inds = null; // reset off-screen indicator hit boxes every frame
+  var indH  = 18*d;
+  var indY0 = sT + 8*d; // top Y of off-screen indicator box
   for (var i = 0; i < SG_WIDTH_ZONES.length; i++) {
     var hw   = SG_WIDTH_ZONES[i] * (vC - vL);
     var gx_L = vC - hw, gx_R = vC + hw;
@@ -7030,26 +7063,31 @@ function sg_drawDashboard(ctx, W, H, vL, vR, vC, sT, sB, d, showZones) {
 
     // Zone 6 (7.5 pts) may go off-screen — show edge indicators instead
     if (i === 6 && (gx_R > vR || gx_L < vL)) {
+      if (!_sg_z6_inds) _sg_z6_inds = {};
+      var indPad = 7*d;
       ctx.setLineDash([]);
       ctx.font = 'bold ' + (10*d) + 'px JetBrains Mono,monospace';
-      ctx.fillStyle = 'rgba(0,229,204,0.9)';
       if (gx_R > vR) {
         var rTxt = '7.5 \u2192';
-        ctx.textAlign = 'right';
-        ctx.fillStyle = 'rgba(0,0,0,0.55)';
-        var rW = ctx.measureText(rTxt).width + 8*d;
-        ctx.fillRect(vR - rW - 2*d, indY - 11*d, rW + 4*d, 15*d);
+        var rW = ctx.measureText(rTxt).width + indPad*2;
+        var rx = vR - rW - 3*d, ry = indY0;
+        ctx.fillStyle = 'rgba(6,8,18,0.88)'; ctx.fillRect(rx, ry, rW, indH);
+        ctx.strokeStyle = 'rgba(0,229,204,0.92)'; ctx.lineWidth = d; ctx.strokeRect(rx, ry, rW, indH);
         ctx.fillStyle = 'rgba(0,229,204,0.95)';
-        ctx.fillText(rTxt, vR - 4*d, indY);
+        ctx.textAlign = 'center';
+        ctx.fillText(rTxt, rx + rW*0.5, ry + indH*0.70);
+        _sg_z6_inds.R = { x: rx, y: ry, w: rW, h: indH };
       }
       if (gx_L < vL) {
         var lTxt = '\u2190 7.5';
-        ctx.textAlign = 'left';
-        ctx.fillStyle = 'rgba(0,0,0,0.55)';
-        var lW = ctx.measureText(lTxt).width + 8*d;
-        ctx.fillRect(vL + 2*d, indY - 11*d, lW + 4*d, 15*d);
+        var lW = ctx.measureText(lTxt).width + indPad*2;
+        var lx = vL + 3*d, ly = indY0;
+        ctx.fillStyle = 'rgba(6,8,18,0.88)'; ctx.fillRect(lx, ly, lW, indH);
+        ctx.strokeStyle = 'rgba(0,229,204,0.92)'; ctx.lineWidth = d; ctx.strokeRect(lx, ly, lW, indH);
         ctx.fillStyle = 'rgba(0,229,204,0.95)';
-        ctx.fillText(lTxt, vL + 4*d, indY);
+        ctx.textAlign = 'center';
+        ctx.fillText(lTxt, lx + lW*0.5, ly + indH*0.70);
+        _sg_z6_inds.L = { x: lx, y: ly, w: lW, h: indH };
       }
       continue;
     }
