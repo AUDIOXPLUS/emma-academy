@@ -7039,7 +7039,11 @@ function sg_drawDashboard(ctx, W, H, vL, vR, vC, sT, sB, d, showZones) {
 
     ctx.save();
     ctx.beginPath();
-    ctx.rect(vL, sT, fw, sH);
+    // Clip horizontally to (vL, vR) so the dashboard stays inside the
+    // scoring field columns, but vertically let the image bleed all the
+    // way to the canvas bottom (the canvas already excludes the transport
+    // bar via CSS top:44 / bottom:60, so there's no overlap risk).
+    ctx.rect(vL, sT, fw, H - sT);
     ctx.clip();
     ctx.globalAlpha = 0.38;
     ctx.drawImage(sg_dashImage, drawX, drawY, drawW, drawH);
