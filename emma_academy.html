@@ -6408,11 +6408,15 @@ function sg_onPM(e) {
       return;
     }
     // Active drag: shift marker AND line by the same Δy as the pointer.
-    // yN derives from the new marker Y, T-override from the new line Y,
-    // so circle, line and score box translate together as one unit.
+    // Upward travel is clamped so the line never rises above its
+    // calibrated position for score 15 (T = SG_DISTANCE_CALIB[0].T) —
+    // going further up would break the perspective effect.
     var ds = sg_state.distanceDragStart;
     if (ds && ds.travel > 0) {
       var dy = p.y - ds.pointerY;
+      var minLineY = ds.horizonY + ds.travel * SG_DISTANCE_CALIB[0].T;
+      var minDy    = minLineY - ds.lineYAtDown;
+      if (dy < minDy) dy = minDy;
       var newMarkerY = ds.markerYAtDown + dy;
       var newLineY   = ds.lineYAtDown   + dy;
       var newYN = sg_canvasYToNorm(newMarkerY);
