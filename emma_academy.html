@@ -7068,7 +7068,10 @@ function sg_drawDashboard(ctx, W, H, vL, vR, vC, sT, sB, d, showZones) {
       ctx.textAlign = 'center';
       var indPadX = 6*d;                  // hit-area horizontal padding
       var indHitH = 22*d;                 // hit-area height (comfortable click target)
-      var labelY  = sT - 4*d;             // baseline, same as other score labels
+      // Drop the 7.5 label a bit below the other score labels so it doesn't
+      // overlap the 6.5 label when zone 6 is off-screen (the 6.5 line sits
+      // very close to the edge at frac ≈ 0.93).
+      var labelY  = sT + 14*d;
       if (gx_R > vR) {
         var rTxt = '7.5 \u2192';
         var rW = ctx.measureText(rTxt).width;
