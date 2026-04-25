@@ -6475,20 +6475,11 @@ function sg_onPU(e) {
     if (!sg_state.distanceDragging) return;
     sg_state.distanceDragging = false;
     sg_state.distanceDragStart = null;
-    // Commit any live-T from the line drag into the per-score calib so it
-    // persists across mode switches and seeds the merged interpolation.
-    if (sg_distanceLiveT != null && sg_state.distanceY != null) {
-      var endScore = sg_yToDistanceScore(sg_state.distanceY);
-      if (endScore != null && SG_DISTANCE_SCORE_YN[endScore] != null) {
-        var prev = sg_distanceUserCalib[endScore];
-        var seed = prev || sg_distanceAutoFromYN(SG_DISTANCE_SCORE_YN[endScore]);
-        sg_distanceUserCalib[endScore] = {
-          T: Math.max(0, Math.min(1, sg_distanceLiveT)),
-          L: prev ? prev.L : seed.L,
-          Size: prev ? prev.Size : seed.Size
-        };
-      }
-    }
+    // Line drag is exploratory only: clear the transient live-T so the
+    // line snaps back to the calibrated auto-T at the resulting yN. We
+    // intentionally do NOT write into sg_distanceUserCalib here — that
+    // would silently overwrite values the user calibrated via the
+    // stepper at the destination score.
     sg_distanceLiveT = null;
     // Reset cursor; sg_onPM will re-set it on the next move based on hover.
     sg_canvas.style.cursor = '';
