@@ -6010,7 +6010,7 @@ function sg_initIfNeeded() {
     });
 
     document.getElementById('sg-dc-reset').addEventListener('click', function(){
-      sg_dashOffsetY = 100; sg_dashScaleX = 5.0; sg_dashScaleY = 4.5; sg_eyeLevel = 0.46;
+      sg_dashOffsetY = 150; sg_dashScaleX = 5.0; sg_dashScaleY = 5.0; sg_eyeLevel = 0.46;
       document.getElementById('sg-dc-oy').value = 100;
       document.getElementById('sg-dc-sx').value = 500;
       document.getElementById('sg-dc-sy').value = 450;
@@ -6457,9 +6457,9 @@ var SG_WIDTH_SCORES = [1, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5];                 // scor
 var SG_EYE_TOLERANCE = 0.05; // ±5% of field height counts as "at eye level"
 var sg_dashOverlay  = true;  // virtual dashboard overlay toggle
 var sg_dashImage    = null;  // loaded dashboard background image (Image object)
-var sg_dashOffsetY  = 100;   // vertical offset in px (canvas pixels before DPR)
+var sg_dashOffsetY  = 150;   // vertical offset in px (canvas pixels before DPR)
 var sg_dashScaleX   = 5.0;   // horizontal scale factor (500%)
-var sg_dashScaleY   = 4.5;   // vertical scale factor (450%)
+var sg_dashScaleY   = 5.0;   // vertical scale factor (500%)
 var sg_eyeLevel     = 0.46;  // eye level position: 0.0=top … 1.0=bottom of scoring field
 // Tuning overrides (Distance laser): null = auto, otherwise force the value
 var sg_tuneYNOverride = null;
