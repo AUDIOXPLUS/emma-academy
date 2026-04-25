@@ -6022,12 +6022,14 @@ function sg_initIfNeeded() {
       sg_state.mode = 'ready';
       sg_state.currentPts = [];
       sg_state.distanceDragging = false;
-      // Every time we enter Distance mode, drop the marker back to yN=0
-      // (score 15, over windshield). Overrides on T/L/Score/Size are kept
-      // so the user's calibration work persists across mode switches.
+      // Every time we enter Distance mode, drop the marker on score 15
+      // (over windshield). The per-score sg_distanceUserCalib entries
+      // persist across mode switches so previous calibration work is
+      // preserved.
       if (entering) {
-        sg_state.distanceY = 0;
+        sg_state.distanceY = SG_DISTANCE_SCORE_YN[15];
         sg_state.distanceNoSound = false;
+        sg_distanceLiveT = null;
       }
       sg_updateUI();
       sg_drawFrame(sg_curT || 0);
@@ -6393,14 +6395,15 @@ function sg_onPD(e) {
     }
     // ── Drag the laser line ─────────────────────────────────────────────
     // Accept the gesture only when the click lands on the line itself.
-    // Marker, line and score box move as one unit: each pointer Δy is
-    // applied identically to the marker and line, preserving their gap.
+    // Line drag is a single-axis edit of the laser T at the CURRENT
+    // score: the marker stays put (yN unchanged) so score never shifts
+    // implicitly under the user's finger. Score is owned by the Score
+    // stepper alone — that is the only thing that moves the marker.
     if (!sg_distanceLineHit(p)) return;
     sg_state.distanceDragging = true;
     sg_state.distanceDragStart = {
       pointerY:    p.y,
-      markerYAtDown: _sg_distance_line.markerY,
-      lineYAtDown:   _sg_distance_line.y,
+      lineYAtDown: _sg_distance_line.y,
       horizonY:    _sg_distance_line.horizonY,
       travel:      _sg_distance_line.travel
     };
@@ -6438,23 +6441,20 @@ function sg_onPM(e) {
       }
       return;
     }
-    // Active drag: shift marker AND line by the same Δy as the pointer.
-    // Upward travel is clamped so the line never rises above its
-    // calibrated position for score 15 (T = SG_DISTANCE_CALIB[0].T) —
-    // going further up would break the perspective effect.
+    // Active drag: shift only the laser line by the pointer Δy. The
+    // marker stays anchored at the current score's yN so the displayed
+    // score never shifts under the user's finger. Upward travel is
+    // clamped at score 15's calibrated T to preserve the perspective.
     var ds = sg_state.distanceDragStart;
     if (ds && ds.travel > 0) {
       var dy = p.y - ds.pointerY;
       var minLineY = ds.horizonY + ds.travel * SG_DISTANCE_CALIB[0].T;
       var minDy    = minLineY - ds.lineYAtDown;
       if (dy < minDy) dy = minDy;
-      var newMarkerY = ds.markerYAtDown + dy;
-      var newLineY   = ds.lineYAtDown   + dy;
-      var newYN = sg_canvasYToNorm(newMarkerY);
-      if (newYN != null) sg_state.distanceY = newYN;
-      var newT = (newLineY - ds.horizonY) / ds.travel;
-      // Live T override only for the duration of the drag; on pointer-up
-      // we commit it into sg_distanceUserCalib at the resulting score.
+      var newLineY = ds.lineYAtDown + dy;
+      var newT     = (newLineY - ds.horizonY) / ds.travel;
+      // Live T override visible during the drag; committed into
+      // sg_distanceUserCalib[currentScore] on pointer-up.
       sg_distanceLiveT = Math.max(0, Math.min(1, newT));
       sg_drawFrame(sg_curT);
     }
@@ -6475,11 +6475,21 @@ function sg_onPU(e) {
     if (!sg_state.distanceDragging) return;
     sg_state.distanceDragging = false;
     sg_state.distanceDragStart = null;
-    // Line drag is exploratory only: clear the transient live-T so the
-    // line snaps back to the calibrated auto-T at the resulting yN. We
-    // intentionally do NOT write into sg_distanceUserCalib here — that
-    // would silently overwrite values the user calibrated via the
-    // stepper at the destination score.
+    // Commit the live T into the per-score calib. Marker yN didn't move
+    // during the drag, so the score is the same one the user was editing
+    // — no chance of overwriting another score's calibration.
+    if (sg_distanceLiveT != null && sg_state.distanceY != null) {
+      var endScore = sg_yToDistanceScore(sg_state.distanceY);
+      if (endScore != null && SG_DISTANCE_SCORE_YN[endScore] != null) {
+        var prev = sg_distanceUserCalib[endScore];
+        var seed = prev || sg_distanceAutoFromYN(SG_DISTANCE_SCORE_YN[endScore]);
+        sg_distanceUserCalib[endScore] = {
+          T: Math.max(0, Math.min(1, sg_distanceLiveT)),
+          L: prev ? prev.L : seed.L,
+          Size: prev ? prev.Size : seed.Size
+        };
+      }
+    }
     sg_distanceLiveT = null;
     // Reset cursor; sg_onPM will re-set it on the next move based on hover.
     sg_canvas.style.cursor = '';
