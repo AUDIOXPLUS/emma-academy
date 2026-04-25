@@ -6318,6 +6318,25 @@ function sg_distanceArrowHitTest(p) {
   return null;
 }
 
+// Map a line Y position back to the nearest calibrated score. Used by
+// the line drag handler so dragging the laser line behaves like pressing
+// the Score ◀/▶ buttons: the line snaps to the closest landmark anchor
+// among scores 1..15 (T from the merged calibration table).
+function sg_lineYToNearestScore(lineY, horizonY, travel) {
+  if (travel <= 0) return 15;
+  var T = (lineY - horizonY) / travel;
+  var bestScore = 15;
+  var bestDiff  = Infinity;
+  for (var sc = 1; sc <= 15; sc++) {
+    var canonYN = SG_DISTANCE_SCORE_YN[sc];
+    if (canonYN == null) continue;
+    var auto = sg_distanceAutoFromYN(canonYN);
+    var diff = Math.abs(auto.T - T);
+    if (diff < bestDiff) { bestDiff = diff; bestScore = sc; }
+  }
+  return bestScore;
+}
+
 // Apply a single ◀/▶ step to the given field.
 //   • Score: snaps the marker to the canonical yN of the new score so the
 //     user can step through 15 → 1 calibrating each landmark in turn.
@@ -6441,21 +6460,20 @@ function sg_onPM(e) {
       }
       return;
     }
-    // Active drag: shift only the laser line by the pointer Δy. The
-    // marker stays anchored at the current score's yN so the displayed
-    // score never shifts under the user's finger. Upward travel is
-    // clamped at score 15's calibrated T to preserve the perspective.
+    // Active drag: the laser line works as a continuous Score stepper.
+    // The pointer Y maps to the nearest score whose calibrated lineY is
+    // closest, and the marker snaps to that score's canonical yN. Same
+    // effect as pressing the Score ◀ ▶ buttons repeatedly, just driven
+    // by drag instead of clicks. T/L/Size come from the calibration so
+    // the line never escapes the table.
     var ds = sg_state.distanceDragStart;
     if (ds && ds.travel > 0) {
       var dy = p.y - ds.pointerY;
-      var minLineY = ds.horizonY + ds.travel * SG_DISTANCE_CALIB[0].T;
-      var minDy    = minLineY - ds.lineYAtDown;
-      if (dy < minDy) dy = minDy;
       var newLineY = ds.lineYAtDown + dy;
-      var newT     = (newLineY - ds.horizonY) / ds.travel;
-      // Live T override visible during the drag; committed into
-      // sg_distanceUserCalib[currentScore] on pointer-up.
-      sg_distanceLiveT = Math.max(0, Math.min(1, newT));
+      var snapScore = sg_lineYToNearestScore(newLineY, ds.horizonY, ds.travel);
+      var snapYN    = SG_DISTANCE_SCORE_YN[snapScore];
+      if (snapYN != null) sg_state.distanceY = snapYN;
+      sg_distanceLiveT = null;
       sg_drawFrame(sg_curT);
     }
     return;
@@ -6475,21 +6493,9 @@ function sg_onPU(e) {
     if (!sg_state.distanceDragging) return;
     sg_state.distanceDragging = false;
     sg_state.distanceDragStart = null;
-    // Commit the live T into the per-score calib. Marker yN didn't move
-    // during the drag, so the score is the same one the user was editing
-    // — no chance of overwriting another score's calibration.
-    if (sg_distanceLiveT != null && sg_state.distanceY != null) {
-      var endScore = sg_yToDistanceScore(sg_state.distanceY);
-      if (endScore != null && SG_DISTANCE_SCORE_YN[endScore] != null) {
-        var prev = sg_distanceUserCalib[endScore];
-        var seed = prev || sg_distanceAutoFromYN(SG_DISTANCE_SCORE_YN[endScore]);
-        sg_distanceUserCalib[endScore] = {
-          T: Math.max(0, Math.min(1, sg_distanceLiveT)),
-          L: prev ? prev.L : seed.L,
-          Size: prev ? prev.Size : seed.Size
-        };
-      }
-    }
+    // Line drag = continuous Score stepper. Score (and the underlying
+    // calibration entry) was already updated each frame by sg_onPM via
+    // snap-to-nearest-score, so there's nothing to commit on release.
     sg_distanceLiveT = null;
     // Reset cursor; sg_onPM will re-set it on the next move based on hover.
     sg_canvas.style.cursor = '';
