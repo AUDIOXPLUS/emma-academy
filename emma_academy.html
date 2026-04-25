@@ -7308,9 +7308,9 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
     _sg_distance_arrows[name + '_dn'] = { x: dnCx - arrowW/2, y: rowMidY - hitH/2, w: arrowW, h: hitH };
     _sg_distance_arrows[name + '_up'] = { x: upCx - arrowW/2, y: rowMidY - hitH/2, w: arrowW, h: hitH };
   }
+  drawStepRow('Score', 'Score', ScStr);
   drawStepRow('T',     'T',     TStr);
   drawStepRow('L',     'L',     LStr);
-  drawStepRow('Score', 'Score', ScStr);
   drawStepRow('Size',  'Size',  SzStr);
 
   ctx.restore();
