@@ -6358,18 +6358,12 @@ function sg_onPD(e) {
     }
     // ── Drag the laser line ─────────────────────────────────────────────
     // Accept the gesture only when the click lands on the line itself.
-    // Clicks outside the line do nothing (the marker is auto-placed at
-    // yN=0 the first time Distance mode is entered).
+    // Dragging adjusts T (laser depth) — the line follows the pointer
+    // exactly. yN, score and the marker position are NOT affected.
     if (!sg_distanceLineHit(p)) return;
-    var yN = sg_canvasYToNorm(p.y);
-    if (yN == null) return;
-    sg_state.distanceY = yN;
-    sg_state.distanceNoSound = false;
     sg_state.distanceDragging = true;
     sg_canvas.setPointerCapture(e.pointerId);
     sg_canvas.style.cursor = 'grabbing';
-    sg_drawFrame(sg_curT);
-    sg_updateUI();
     e.preventDefault();
     return;
   }
@@ -6402,10 +6396,13 @@ function sg_onPM(e) {
       }
       return;
     }
-    var yN = sg_canvasYToNorm(p.y);
-    if (yN == null) return;
-    sg_state.distanceY = yN;
-    sg_drawFrame(sg_curT);
+    // Active drag: convert pointer Y → laser T directly so the line
+    // tracks the pointer exactly. yN/score/marker unaffected.
+    if (_sg_distance_line && _sg_distance_line.travel > 0) {
+      var newT = (p.y - _sg_distance_line.horizonY) / _sg_distance_line.travel;
+      sg_tuneTOverride = Math.max(-1, Math.min(2, newT));
+      sg_drawFrame(sg_curT);
+    }
     return;
   }
   if (!sg_state.drawing) return;
@@ -6972,8 +6969,12 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
 
     ctx.restore();
 
-    // Expose line bounds for hover-cursor + drag hit-test.
-    _sg_distance_line = { y: lineY, xL: planeL, xR: planeR };
+    // Expose line bounds + the horizon/travel constants so the pointer
+    // handlers can convert pointer Y → T directly while dragging.
+    _sg_distance_line = {
+      y: lineY, xL: planeL, xR: planeR,
+      horizonY: horizonY, travel: travel
+    };
   }
 
   // Shadow lying on the dashboard — flat, elongated along the surface
