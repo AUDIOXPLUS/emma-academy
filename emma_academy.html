@@ -1424,6 +1424,10 @@ body.immersive #inst-picker,body.immersive #btn-add-wrap{opacity:0;pointer-event
         <label class="tb-dd-check">
           <input type="checkbox" id="sg-dc-show-tls"> Show T / L / Size on score box
         </label>
+        <label class="tb-dd-check" title="Drag waypoints on the laser; double-click to add, alt-click to remove, shift-click to toggle segment visibility.">
+          <input type="checkbox" id="sg-dc-edit-laser"> Edit laser shape (drag)
+        </label>
+        <button class="tb-dd-reset" id="sg-btn-laser-reset" style="margin-top:4px" title="Reset the laser shape of the current score back to a straight line">&#8635; Reset shape (current score)</button>
         <button class="tb-dd-reset" id="sg-btn-copy-distance" style="margin-top:4px" title="Copy the current distance mapping (default + your edits) as a JS array literal">&#128203; Copy distance mapping</button>
         <div class="tb-dd-sep"></div>
         <button class="tb-dd-reset" id="sg-dc-reset">&#8635; Reset</button>
@@ -5948,6 +5952,10 @@ function sg_initIfNeeded() {
   sg_canvas.addEventListener('pointermove', sg_onPM);
   sg_canvas.addEventListener('pointerup',   sg_onPU);
   sg_canvas.addEventListener('pointerleave', sg_onPU);
+  // Double-click on the laser line (edit mode + shapeable score) inserts
+  // a new waypoint at the click X. Outside of these conditions the
+  // gesture is a no-op so it never interferes with regular drawing.
+  sg_canvas.addEventListener('dblclick', sg_onDbl);
 
   document.getElementById('sg-btn-back').addEventListener('click', function(){ sg_pause(); showPage('main'); });
   document.getElementById('sg-btn-assign').addEventListener('click', function(){ sg_assignTrack(); });
@@ -6079,6 +6087,21 @@ function sg_initIfNeeded() {
         sg_drawFrame(sg_curT || 0);
       });
     }
+    var editLaserCb = document.getElementById('sg-dc-edit-laser');
+    if (editLaserCb) {
+      editLaserCb.checked = !!sg_laserEditMode;
+      editLaserCb.addEventListener('change', function(){
+        sg_laserEditMode = !!editLaserCb.checked;
+        sg_drawFrame(sg_curT || 0);
+      });
+    }
+    var resetLaserBtn = document.getElementById('sg-btn-laser-reset');
+    if (resetLaserBtn) resetLaserBtn.addEventListener('click', function(){
+      var sc = sg_state.distanceY != null ? sg_yToDistanceScore(sg_state.distanceY) : null;
+      if (!sg_laserShapeable(sc)) return;
+      sg_resetLaserShape(sc);
+      sg_drawFrame(sg_curT || 0);
+    });
   })();
 
   sg_updateUI();
@@ -6125,6 +6148,32 @@ function sg_loadFromData(data, fileName) {
   if (data.dashboardScaleY  != null) sg_dashScaleY  = data.dashboardScaleY;
   if (data.eyeLevel         != null) sg_eyeLevel    = data.eyeLevel;
   if (data.widthZones && data.widthZones.length === 7) SG_WIDTH_ZONES = data.widthZones.slice();
+  // Laser shapes — replace the in-memory dictionary entirely so a project
+  // that omits the field falls back to the (flat) defaults rather than
+  // inheriting shapes from a previously-loaded track.
+  sg_laserShapes = {};
+  if (data.laserShapes && typeof data.laserShapes === 'object') {
+    Object.keys(data.laserShapes).forEach(function(k){
+      var sc = parseInt(k, 10);
+      if (!sg_laserShapeable(sc)) return;
+      var src = data.laserShapes[k];
+      if (!src || !Array.isArray(src.pts) || src.pts.length < 2) return;
+      var pts = src.pts.map(function(p, i){
+        var fixed = (i === 0) || (i === src.pts.length - 1);
+        return {
+          xN:   Math.max(-0.5, Math.min(0.5, +p.xN)),
+          dyN:  Math.max(-0.5, Math.min(0.5, +(p.dyN || 0))),
+          visibleAfter: p.visibleAfter !== false,
+          fixed: fixed
+        };
+      });
+      // Force the two endpoints back to ±0.5 (defensive: a hand-edited
+      // file might drift slightly).
+      pts[0].xN = -0.5; pts[0].fixed = true;
+      pts[pts.length - 1].xN = +0.5; pts[pts.length - 1].fixed = true;
+      sg_laserShapes[sc] = { pts: pts };
+    });
+  }
   sg_syncDashSliders();
   sg_ab = null; sg_dur = 0; sg_curT = 0; sg_offset = 0;
   if (data.audioData) {
@@ -6438,6 +6487,50 @@ function sg_onPD(e) {
         return;
       }
     }
+    // ── Laser-shape editing (when dropdown switch is ON) ────────────────
+    // Waypoint interactions take precedence over the line-drag gesture so
+    // grabbing a handle never accidentally moves the score. Off-dashboard
+    // scores expose no handles and fall through to the regular line drag.
+    if (sg_laserEditMode && _sg_distance_line) {
+      var curScore = _sg_distance_line.score;
+      if (sg_laserShapeable(curScore)) {
+        var wp = sg_laserWaypointHit(p, curScore);
+        if (wp) {
+          var shape = sg_getLaserShape(curScore, true);
+          var pt = shape.pts[wp.idx];
+          // Alt-click on a movable waypoint = remove it
+          if ((e.altKey || e.metaKey) && !pt.fixed) {
+            shape.pts.splice(wp.idx, 1);
+            sg_drawFrame(sg_curT); e.preventDefault(); return;
+          }
+          // Shift-click toggles segment visibility (the segment that
+          // *starts* at this point). On the right-most endpoint there is
+          // no following segment, so the toggle is a no-op there.
+          if (e.shiftKey && wp.idx < shape.pts.length - 1) {
+            pt.visibleAfter = !(pt.visibleAfter !== false);
+            sg_drawFrame(sg_curT); e.preventDefault(); return;
+          }
+          // Plain press on a waypoint = start drag. Endpoints can move
+          // vertically (dyN) but not horizontally (xN stays at ±0.5);
+          // intermediate points are clamped between their neighbours.
+          var prev = shape.pts[wp.idx - 1];
+          var next = shape.pts[wp.idx + 1];
+          sg_laserDragWp = {
+            score: curScore,
+            idx: wp.idx,
+            fixed: !!pt.fixed,
+            // Leave a small ε so neighbours never coincide and break the
+            // monotonic X assumption used by the renderer / hit-test.
+            minXN: prev ? prev.xN + 0.001 : -0.5,
+            maxXN: next ? next.xN - 0.001 : +0.5
+          };
+          sg_canvas.setPointerCapture(e.pointerId);
+          sg_canvas.style.cursor = 'grabbing';
+          e.preventDefault();
+          return;
+        }
+      }
+    }
     // ── Drag the laser line ─────────────────────────────────────────────
     // Accept the gesture only when the click lands on the line itself.
     // Line drag is a single-axis edit of the laser T at the CURRENT
@@ -6445,6 +6538,10 @@ function sg_onPD(e) {
     // implicitly under the user's finger. Score is owned by the Score
     // stepper alone — that is the only thing that moves the marker.
     if (!sg_distanceLineHit(p)) return;
+    // When the shape editor is active, suppress the line-drag entirely:
+    // the user is bending the laser and a stray miss-click on the line
+    // shouldn't reassign the score. The Score ◀▶ stepper still works.
+    if (sg_laserEditMode) { e.preventDefault(); return; }
     sg_state.distanceDragging = true;
     sg_state.distanceDragStart = {
       pointerY:    p.y,
@@ -6473,12 +6570,38 @@ function sg_onPM(e) {
   }
   if (sg_state.toolMode === 'distance') {
     var p = sg_getCanvasPt(e);
+    // ── Active laser-shape waypoint drag ─────────────────────────────────
+    if (sg_laserDragWp) {
+      var line = _sg_distance_line;
+      if (line && line.xR > line.xL && line.sH > 0) {
+        var shape = sg_getLaserShape(sg_laserDragWp.score, true);
+        var pt = shape.pts[sg_laserDragWp.idx];
+        if (pt) {
+          // X (only for non-fixed points): clamped between the two
+          // neighbours captured at pickup. Y always tracks the pointer.
+          if (!sg_laserDragWp.fixed) {
+            var laserLen = line.xR - line.xL;
+            var xN = ((p.x - line.xL) / laserLen) - 0.5;
+            xN = Math.max(sg_laserDragWp.minXN, Math.min(sg_laserDragWp.maxXN, xN));
+            pt.xN = xN;
+          }
+          var dyN = (p.y - line.y) / line.sH;
+          dyN = Math.max(-0.5, Math.min(0.5, dyN));
+          pt.dyN = dyN;
+          sg_drawFrame(sg_curT);
+        }
+      }
+      return;
+    }
     if (!sg_state.distanceDragging) {
-      // Hover-cursor feedback: pointer over an arrow → 'pointer'; over
-      // the laser line → 'grab'; anywhere else → default.
+      // Hover-cursor feedback: pointer over an arrow → 'pointer'; over a
+      // laser waypoint (when edit mode is on) → 'grab'; over the laser
+      // line → 'grab'; anywhere else → default.
       var arrowHit = _sg_distance_arrows && sg_distanceArrowHitTest(p);
       if (arrowHit) {
         sg_canvas.style.cursor = 'pointer';
+      } else if (sg_laserEditMode && _sg_distance_line && sg_laserShapeable(_sg_distance_line.score) && sg_laserWaypointHit(p, _sg_distance_line.score)) {
+        sg_canvas.style.cursor = 'grab';
       } else if (sg_distanceLineHit(p)) {
         sg_canvas.style.cursor = 'grab';
       } else {
@@ -6516,6 +6639,14 @@ function sg_onPU(e) {
     return;
   }
   if (sg_state.toolMode === 'distance') {
+    // Release laser-shape drag first so we don't fall into the line-drag
+    // branch and toggle the score by accident.
+    if (sg_laserDragWp) {
+      sg_laserDragWp = null;
+      sg_canvas.style.cursor = '';
+      sg_drawFrame(sg_curT);
+      return;
+    }
     if (!sg_state.distanceDragging) return;
     sg_state.distanceDragging = false;
     sg_state.distanceDragStart = null;
@@ -6542,6 +6673,39 @@ function sg_onPU(e) {
   sg_state.currentPts = [];
   sg_drawFrame(sg_curT);
   sg_updateUI();
+}
+
+// Double-click in distance mode + edit-laser switch ON inserts a new
+// waypoint at the click X. The Y is taken from the existing shape (so
+// the line doesn't visually jump on insertion); the user can then drag
+// the new point up/down to bend the line.
+function sg_onDbl(e) {
+  if (sg_state.toolMode !== 'distance') return;
+  if (!sg_laserEditMode) return;
+  if (!_sg_distance_line) return;
+  var score = _sg_distance_line.score;
+  if (!sg_laserShapeable(score)) return;
+  var p = sg_getCanvasPt(e);
+  var line = _sg_distance_line;
+  // Only act when the click is roughly on the laser strip (allow a
+  // generous vertical tolerance so bent shapes are still easy to extend).
+  var d = window.devicePixelRatio || 1;
+  if (p.x < line.xL || p.x > line.xR) return;
+  if (Math.abs(p.y - line.y) > Math.max(40 * d, line.sH * 0.25)) return;
+  var laserLen = line.xR - line.xL;
+  if (laserLen <= 0) return;
+  var xN = ((p.x - line.xL) / laserLen) - 0.5;
+  // Insert into the (possibly newly-allocated) shape and immediately drag
+  // the new point so the user can place it precisely without a separate
+  // mouse-down. Pointer capture mirrors the regular waypoint drag.
+  var shape = sg_getLaserShape(score, true);
+  var idx = sg_laserInsertWaypoint(shape, xN);
+  if (idx < 0) return;
+  // Snap the new point's Y to the click position.
+  var dyN = (p.y - line.y) / line.sH;
+  shape.pts[idx].dyN = Math.max(-0.5, Math.min(0.5, dyN));
+  sg_drawFrame(sg_curT);
+  e.preventDefault();
 }
 
 // Hyperbolic (1/z) perspective — the correct projection for a point
@@ -6650,6 +6814,15 @@ var sg_distanceLiveT = null;
 // dropdown ("Show T / L / Size on score box").
 var sg_distanceShowTLS = false;
 
+// Laser-shape editor switch (dropdown checkbox "Edit laser shape").
+// When true, the laser exposes its waypoints and reacts to pointer
+// gestures: drag = move waypoint, double-click on segment = add point,
+// alt-click on point = remove, shift-click on point = toggle the
+// visibility of the segment that starts at it.
+var sg_laserEditMode = false;
+// Drag state for a waypoint pickup: {score, idx, neighborMinX, neighborMaxX}
+var sg_laserDragWp = null;
+
 // Canonical yN per score (boundary-based, matching SG_DISTANCE_Y). Used
 // both as the position the Score stepper snaps to and the yN at which
 // user calib entries are inserted when merged into the laser calibration.
@@ -6738,6 +6911,31 @@ function sg_distanceMappingToString() {
     );
   });
   lines.push('];');
+
+  // Append per-score laser shapes (only the ones that diverge from the
+  // straight-line default — keeps the snippet small and makes it obvious
+  // which scores have been customised).
+  var shapeKeys = Object.keys(sg_laserShapes)
+    .map(function(k){ return parseInt(k, 10); })
+    .filter(function(k){ return sg_laserShapeable(k) && sg_laserShapeIsCustom(sg_laserShapes[k]); })
+    .sort(function(a, b){ return a - b; });
+  if (shapeKeys.length) {
+    lines.push('');
+    lines.push('var SG_LASER_SHAPES = {');
+    shapeKeys.forEach(function(sc, si) {
+      var s = sg_laserShapes[sc];
+      var rows = s.pts.map(function(p){
+        return '{ xN: ' + p.xN.toFixed(3) +
+               ', dyN: ' + (p.dyN || 0).toFixed(3) +
+               ', visibleAfter: ' + (p.visibleAfter !== false) + ' }';
+      }).join(', ');
+      var lbl = SG_DISTANCE_LABELS[sc] ? '  // ' + SG_DISTANCE_LABELS[sc] : '';
+      var comma = (si < shapeKeys.length - 1) ? ',' : '';
+      lines.push('  ' + sc + ': { pts: [ ' + rows + ' ] }' + comma + lbl);
+    });
+    lines.push('};');
+  }
+
   return lines.join('\n');
 }
 
@@ -6782,6 +6980,106 @@ function sg_distanceAutoFromYN(yN) {
   var l = calib[calib.length - 1];
   return { T: l.T, L: l.L, Size: l.Size };
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Laser-line shape (per score) — bends the otherwise-straight laser line
+// so it can follow the dashboard's perspective (e.g. dip behind the
+// steering wheel, rise toward the windshield base). Only scores 4..12 are
+// shapeable; 15/14/13 (above the dashboard) and 1/2/3 (face/chest/behind)
+// stay perfectly horizontal because they sit off the cruscotto plane.
+//
+// Each shape is a list of waypoints with normalised X (xN ∈ [-0.5, +0.5]
+// along the current line length L) and Y offset (dyN, fraction of sH;
+// negative = up). The two endpoints are fixed to xN ±0.5; intermediate
+// points are user-added. visibleAfter on a point gates rendering of the
+// segment that *starts* at that point — turn it off to simulate the line
+// passing behind a dashboard element.
+// ─────────────────────────────────────────────────────────────────────────
+var SG_LASER_SHAPEABLE_MIN = 4;
+var SG_LASER_SHAPEABLE_MAX = 12;
+function sg_laserShapeable(score) {
+  return score != null && score >= SG_LASER_SHAPEABLE_MIN && score <= SG_LASER_SHAPEABLE_MAX;
+}
+function sg_defaultLaserShape() {
+  // Two fixed endpoints, no Y offset → identical to the original straight line.
+  return {
+    pts: [
+      { xN: -0.5, dyN: 0, visibleAfter: true,  fixed: true },
+      { xN: +0.5, dyN: 0, visibleAfter: true,  fixed: true }
+    ]
+  };
+}
+// Per-score shapes; populated lazily so we never carry a default object
+// for scores that the user hasn't touched (keeps the JSON dumped by
+// "Copy distance mapping" lean and clearly shows which scores diverge
+// from the straight-line default).
+var sg_laserShapes = {};
+function sg_getLaserShape(score, createIfMissing) {
+  if (!sg_laserShapeable(score)) return null;
+  var s = sg_laserShapes[score];
+  if (!s && createIfMissing) {
+    s = sg_laserShapes[score] = sg_defaultLaserShape();
+  }
+  return s || null;
+}
+function sg_resetLaserShape(score) {
+  if (!sg_laserShapeable(score)) return;
+  delete sg_laserShapes[score];
+}
+// True when at least one waypoint differs from the flat-line default.
+function sg_laserShapeIsCustom(shape) {
+  if (!shape || !shape.pts || shape.pts.length === 0) return false;
+  if (shape.pts.length !== 2) return true;
+  for (var i = 0; i < shape.pts.length; i++) {
+    var p = shape.pts[i];
+    if (p.dyN !== 0) return true;
+    if (p.visibleAfter === false) return true;
+  }
+  return false;
+}
+// Insert a new waypoint at the given xN (clamped strictly between the
+// neighbours so the polyline stays monotonic in X). dyN is interpolated
+// from the existing shape so the visual line doesn't jump on insertion.
+function sg_laserInsertWaypoint(shape, xN) {
+  if (!shape) return -1;
+  var pts = shape.pts;
+  for (var i = 0; i < pts.length - 1; i++) {
+    var a = pts[i], b = pts[i + 1];
+    if (xN > a.xN && xN < b.xN) {
+      var k = (xN - a.xN) / (b.xN - a.xN);
+      var dyN = a.dyN + (b.dyN - a.dyN) * k;
+      var newPt = { xN: xN, dyN: dyN, visibleAfter: a.visibleAfter !== false, fixed: false };
+      pts.splice(i + 1, 0, newPt);
+      return i + 1;
+    }
+  }
+  return -1;
+}
+// Hit-test waypoints; returns {score, idx} or null. Coordinates are in
+// canvas-pixel space and require the latest _sg_distance_line bounds.
+var SG_LASER_WP_HIT_PX = 12;
+function sg_laserWaypointHit(p, score) {
+  if (!_sg_distance_line || !sg_laserShapeable(score)) return null;
+  var shape = sg_getLaserShape(score, false);
+  if (!shape) return null;
+  var d = window.devicePixelRatio || 1;
+  var hit = SG_LASER_WP_HIT_PX * d;
+  var line = _sg_distance_line;
+  var lineLen = line.xR - line.xL;
+  if (lineLen <= 0) return null;
+  var sH = line.sH != null ? line.sH : 1;
+  // Iterate from last to first so a draw-order-top point wins ties.
+  for (var i = shape.pts.length - 1; i >= 0; i--) {
+    var pt = shape.pts[i];
+    var px = line.xL + (pt.xN + 0.5) * lineLen;
+    var py = line.y + pt.dyN * sH;
+    if (Math.abs(p.x - px) <= hit && Math.abs(p.y - py) <= hit) {
+      return { idx: i };
+    }
+  }
+  return null;
+}
+
 // Width-zone editing: when true the vertical zone lines become draggable.
 var sg_zonesEditable = false;
 var SG_WIDTH_ZONES_DEFAULT = [0.127, 0.338, 0.657, 0.746, 0.848, 0.931, 1.100];
@@ -7166,6 +7464,30 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
     g.addColorStop(0.82, 'rgba(' + color + ',' + (coreA * 0.55).toFixed(3) + ')');
     g.addColorStop(1,    'rgba(' + color + ',0)');
 
+    // Resolve the shape for the current score. Scores outside [4..12] are
+    // off the cruscotto plane → render as a perfectly straight line (the
+    // shape lookup returns null and we fall back to a 2-point virtual shape
+    // below). Stored shapes are referenced by score so the user can
+    // calibrate each landmark independently.
+    var shape = sg_getLaserShape(score, false);
+    var shapePts;
+    if (shape && shape.pts && shape.pts.length >= 2) {
+      shapePts = shape.pts;
+    } else {
+      // Default flat line shape (matches the original behaviour exactly).
+      shapePts = [
+        { xN: -0.5, dyN: 0, visibleAfter: true,  fixed: true },
+        { xN: +0.5, dyN: 0, visibleAfter: true,  fixed: true }
+      ];
+    }
+    var laserLen = planeR - planeL;
+    function laserPx(pt) {
+      return {
+        x: planeL + (pt.xN + 0.5) * laserLen,
+        y: lineY + pt.dyN * sH
+      };
+    }
+
     ctx.save();
     ctx.beginPath();
     // Clip horizontally to the scoring columns, but extend vertically all
@@ -7175,13 +7497,74 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
     ctx.rect(vL, sT, vR - vL, H - sT);
     ctx.clip();
 
-    ctx.strokeStyle = g;
-    ctx.lineWidth = (3.5 + 3 * lineTClamped) * d;
-    ctx.globalAlpha = 0.35;
-    ctx.beginPath(); ctx.moveTo(planeL, lineY); ctx.lineTo(planeR, lineY); ctx.stroke();
-    ctx.globalAlpha = 1;
-    ctx.lineWidth = Math.max(1*d, 1.2*d + 0.4*d*lineTClamped);
-    ctx.beginPath(); ctx.moveTo(planeL, lineY); ctx.lineTo(planeR, lineY); ctx.stroke();
+    // Polyline rendering: each visible segment is drawn twice (wide
+    // translucent halo + thin core stroke) so the gradient still gives
+    // the "soft tip / bright centre" laser feel even when the line is
+    // bent. Segments with visibleAfter:false on their starting point are
+    // skipped entirely — that's how the line "disappears" behind the
+    // steering wheel and similar dashboard elements.
+    function strokeSegments(lineWidth, alpha) {
+      ctx.strokeStyle = g;
+      ctx.lineWidth = lineWidth;
+      ctx.globalAlpha = alpha;
+      for (var si = 0; si < shapePts.length - 1; si++) {
+        var a = shapePts[si], b = shapePts[si + 1];
+        if (a.visibleAfter === false) continue;
+        var pa = laserPx(a), pb = laserPx(b);
+        ctx.beginPath();
+        ctx.moveTo(pa.x, pa.y);
+        ctx.lineTo(pb.x, pb.y);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+    strokeSegments((3.5 + 3 * lineTClamped) * d, 0.35);
+    strokeSegments(Math.max(1*d, 1.2*d + 0.4*d*lineTClamped), 1);
+
+    // ── Edit-mode overlays ──────────────────────────────────────────────
+    // Only paint the waypoint handles when the dropdown switch is on AND
+    // the current score is shapeable. Off-dashboard scores (15/14/13 and
+    // 1/2/3) intentionally show no handles.
+    var canShape = sg_laserShapeable(score);
+    if (sg_laserEditMode && canShape) {
+      // Dim outline of any hidden segments so the user can see where they
+      // exist while editing — they're transparent in the live laser pass.
+      ctx.save();
+      ctx.setLineDash([4*d, 4*d]);
+      ctx.strokeStyle = 'rgba(255,200,80,.35)';
+      ctx.lineWidth = 1*d;
+      for (var sj = 0; sj < shapePts.length - 1; sj++) {
+        var aa = shapePts[sj], bb = shapePts[sj + 1];
+        if (aa.visibleAfter !== false) continue;
+        var ppa = laserPx(aa), ppb = laserPx(bb);
+        ctx.beginPath();
+        ctx.moveTo(ppa.x, ppa.y);
+        ctx.lineTo(ppb.x, ppb.y);
+        ctx.stroke();
+      }
+      ctx.restore();
+      // Waypoint dots: fixed endpoints in dim teal, movable points in
+      // bright teal, the active drag target highlighted yellow.
+      var hitR = 5 * d;
+      for (var pi = 0; pi < shapePts.length; pi++) {
+        var ptp = shapePts[pi];
+        var pp = laserPx(ptp);
+        var isActive = (sg_laserDragWp && sg_laserDragWp.score === score && sg_laserDragWp.idx === pi);
+        var fillCol = isActive ? 'rgba(255,220,120,.95)' : (ptp.fixed ? 'rgba(0,229,204,.55)' : 'rgba(0,229,204,.95)');
+        ctx.fillStyle = fillCol;
+        ctx.strokeStyle = 'rgba(0,0,0,.85)';
+        ctx.lineWidth = 1.2 * d;
+        ctx.beginPath();
+        ctx.arc(pp.x, pp.y, hitR, 0, Math.PI * 2);
+        ctx.fill(); ctx.stroke();
+      }
+      // Help banner above the laser
+      ctx.font = 'bold ' + (9*d) + 'px JetBrains Mono,monospace';
+      ctx.fillStyle = 'rgba(255,220,120,.85)';
+      ctx.textAlign = 'center';
+      ctx.fillText('LASER SHAPE — drag · dbl-click=add · alt=remove · shift=hide segment',
+        vC, Math.max(sT + 12*d, lineY - 18*d));
+    }
 
     ctx.restore();
 
@@ -7191,7 +7574,9 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
     _sg_distance_line = {
       y: lineY, xL: planeL, xR: planeR,
       horizonY: horizonY, travel: travel,
-      markerY: my
+      markerY: my,
+      sH: sH,
+      score: score
     };
   }
 
