@@ -6625,18 +6625,25 @@ var SG_DISTANCE_SCORE_YN = {
 // Per-yN calibration table for the Distance laser. Each row gives the
 // auto-computed T (laser anchor), L (line length frac) and Size (marker
 // radius frac) at a specific yN. Adjacent rows are linearly interpolated.
-// User-supplied calibration points get added here as (yN ↔ score) pairs.
-//   score 15 ≈ yN 0.00 (windshield)
-//   score 13 ≈ yN 0.24
-//   score 10 ≈ yN 0.46
-//   below score 10 we keep prior placeholders until more data is provided.
+// Full 15-point user calibration captured via the calibration popover
+// and "Copy distance mapping" button — landmark anchors:
+//   score 15 ≈ yN 0.00 (over windshield)  …  score 1 ≈ yN 1.00 (behind listener)
 var SG_DISTANCE_CALIB = [
-  { yN: 0.00, T: 0.453, L: 0.68, Size: 0.19 },  // score 15 — over windshield
-  { yN: 0.15, T: 0.555, L: 0.68, Size: 0.24 },  // score 14 — top of windshield
-  { yN: 0.24, T: 0.671, L: 0.68, Size: 0.29 },  // score 13 — windshield
-  { yN: 0.32, T: 0.722, L: 0.68, Size: 0.29 },  // score 12 — dashboard → windshield
-  { yN: 0.46, T: 0.770, L: 0.83, Size: 0.39 },  // score 10 — dashboard → windshield
-  { yN: 1.00, T: 0.900, L: 1.00, Size: 1.00 }   // closest (placeholder, awaiting calibration)
+  { yN: 0.000, T: 0.473, L: 0.44, Size: 0.19 },  // score 15 — over windshield
+  { yN: 0.150, T: 0.580, L: 0.63, Size: 0.24 },  // score 14 — top of windshield
+  { yN: 0.240, T: 0.671, L: 0.79, Size: 0.29 },  // score 13 — windshield
+  { yN: 0.320, T: 0.706, L: 0.68, Size: 0.34 },  // score 12 — dashboard → windshield
+  { yN: 0.390, T: 0.728, L: 0.76, Size: 0.36 },  // score 11 — dashboard → windshield
+  { yN: 0.460, T: 0.765, L: 0.83, Size: 0.39 },  // score 10 — dashboard → windshield
+  { yN: 0.540, T: 0.789, L: 0.89, Size: 0.48 },  // score 9 — dashboard
+  { yN: 0.600, T: 0.813, L: 0.91, Size: 0.53 },  // score 8 — wheel → dashboard
+  { yN: 0.680, T: 0.837, L: 0.93, Size: 0.59 },  // score 7 — wheel → dashboard
+  { yN: 0.760, T: 0.867, L: 0.95, Size: 0.63 },  // score 6 — steering wheel
+  { yN: 0.820, T: 0.887, L: 0.98, Size: 0.67 },  // score 5 — wheel → body
+  { yN: 0.870, T: 0.925, L: 0.99, Size: 0.71 },  // score 4 — wheel → body
+  { yN: 0.920, T: 1.000, L: 0.99, Size: 0.77 },  // score 3 — face / chest
+  { yN: 0.970, T: 1.000, L: 1.00, Size: 0.86 },  // score 2 — head / body
+  { yN: 1.000, T: 1.000, L: 1.00, Size: 1.00 }   // score 1 — behind listener
 ];
 
 // Build the merged calibration list: default SG_DISTANCE_CALIB overlaid by
