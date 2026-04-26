@@ -7453,13 +7453,9 @@ function sg_drawWindshieldPlane(ctx, W, H, vL, vR, vC, sT, sB, d, horizonY, trav
   }
   ctx.fillStyle = grad;
   ctx.fill();
-
-  // Faint outline so the plane still reads as a single virtual surface
-  // even when the dashboard image underneath is busy. Drawn separately
-  // (not as part of the stroke pass) to keep alpha control independent.
-  ctx.strokeStyle = 'rgba(0,229,204,0.35)';
-  ctx.lineWidth = 1 * d;
-  ctx.stroke();
+  // No outline: the lateral diagonals that close the polygon would
+  // otherwise read as fake "edges" of the windshield. Fill alone gives
+  // the perspective cue the user is after.
 
   ctx.restore();
 }
