@@ -7847,7 +7847,18 @@ function sg_drawWindshieldPlane(ctx, W, H, vL, vR, vC, sT, sB, d, horizonY, trav
     ctx.lineTo(pL.x, pL.y);
   }
   ctx.closePath();
-  ctx.fillStyle = 'rgba(0,229,204,0.10)';
+  // Atmospheric depth gradient: denser at the bottom of the union
+  // (closer to the listener) and lighter at the top (further into the
+  // windshield). Endpoints come from the topmost / bottommost laser
+  // lineY so the gradient always spans exactly the polygon's vertical
+  // extent regardless of which scores are in the chain.
+  var gTopY = lasers[0].lineY;
+  var gBotY = lasers[lasers.length - 1].lineY;
+  if (gBotY <= gTopY) gBotY = gTopY + 1;   // defensive against degenerate spans
+  var grad = ctx.createLinearGradient(0, gTopY, 0, gBotY);
+  grad.addColorStop(0, 'rgba(0,229,204,0.06)');
+  grad.addColorStop(1, 'rgba(0,229,204,0.16)');
+  ctx.fillStyle = grad;
   ctx.fill();
   ctx.restore();
 }
