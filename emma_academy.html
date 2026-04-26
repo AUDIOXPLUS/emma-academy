@@ -7856,8 +7856,8 @@ function sg_drawWindshieldPlane(ctx, W, H, vL, vR, vC, sT, sB, d, horizonY, trav
   var gBotY = lasers[lasers.length - 1].lineY;
   if (gBotY <= gTopY) gBotY = gTopY + 1;   // defensive against degenerate spans
   var grad = ctx.createLinearGradient(0, gTopY, 0, gBotY);
-  grad.addColorStop(0, 'rgba(0,229,204,0.06)');
-  grad.addColorStop(1, 'rgba(0,229,204,0.16)');
+  grad.addColorStop(0, 'rgba(0,229,204,0.04)');
+  grad.addColorStop(1, 'rgba(0,229,204,0.30)');
   ctx.fillStyle = grad;
   ctx.fill();
   ctx.restore();
