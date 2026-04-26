@@ -7434,6 +7434,13 @@ var _sg_plane_mask_panel = null;
 // Pixel hit radius for picking a mask waypoint.
 var SG_PLANE_MASK_HIT_PX = 12;
 
+// xN clamp for masks tracks the field width (anything outside vL..vR
+// gets discarded by the plane clip anyway). yN extends past the
+// scoring-field bottom because the dashboard image is rendered with
+// scaleY = 5 and reaches the canvas bottom — masks need to follow it
+// so points can land on the lower half of the steering wheel.
+var SG_MASK_YN_MIN = -0.5;
+var SG_MASK_YN_MAX = 2.0;
 function sg_clonePlaneMasks(src) {
   if (!Array.isArray(src)) return [];
   var out = [];
@@ -7449,7 +7456,7 @@ function sg_clonePlaneMasks(src) {
       if (!isFinite(xN) || !isFinite(yN)) continue;
       pts.push({
         xN: Math.max(-0.5, Math.min(0.5, xN)),
-        yN: Math.max(0, Math.min(1, yN))
+        yN: Math.max(SG_MASK_YN_MIN, Math.min(SG_MASK_YN_MAX, yN))
       });
     }
     if (pts.length >= 1) out.push({ points: pts });
@@ -7501,6 +7508,8 @@ function sg_planeMaskWaypointHit(p, vL, vR, sT, sB) {
 }
 
 // Convert a canvas pointer to scoring-field normalised mask coords.
+// xN is clamped to [-0.5, +0.5] (field width); yN clamp comes from
+// SG_MASK_YN_MIN/MAX defined alongside sg_clonePlaneMasks above.
 function sg_canvasToMaskN(p, vL, vR, sT, sB) {
   var vC = (vL + vR) / 2;
   var halfW = (vR - vL) / 2;
@@ -7510,7 +7519,7 @@ function sg_canvasToMaskN(p, vL, vR, sT, sB) {
   var yN = (p.y - sT) / sH;
   return {
     xN: Math.max(-0.5, Math.min(0.5, xN)),
-    yN: Math.max(0, Math.min(1, yN))
+    yN: Math.max(SG_MASK_YN_MIN, Math.min(SG_MASK_YN_MAX, yN))
   };
 }
 
