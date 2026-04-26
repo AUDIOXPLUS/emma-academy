@@ -6954,12 +6954,12 @@ var SG_DISTANCE_CALIB = [
   { yN: 0.240, T: 0.671, L: 0.79, Size: 0.29 },  // score 13 — windshield
   { yN: 0.320, T: 0.706, L: 0.68, Size: 0.34 },  // score 12 — dashboard → windshield
   { yN: 0.390, T: 0.728, L: 0.76, Size: 0.36 },  // score 11 — dashboard → windshield
-  { yN: 0.460, T: 0.765, L: 0.83, Size: 0.39 },  // score 10 — dashboard → windshield
-  { yN: 0.540, T: 0.789, L: 0.89, Size: 0.48 },  // score 9 — dashboard
-  { yN: 0.600, T: 0.813, L: 0.91, Size: 0.53 },  // score 8 — wheel → dashboard
-  { yN: 0.680, T: 0.837, L: 0.93, Size: 0.59 },  // score 7 — wheel → dashboard
-  { yN: 0.760, T: 0.867, L: 0.95, Size: 0.63 },  // score 6 — steering wheel
-  { yN: 0.820, T: 0.887, L: 0.98, Size: 0.67 },  // score 5 — wheel → body
+  { yN: 0.460, T: 0.765, L: 1.00, Size: 0.39 },  // score 10 — dashboard → windshield
+  { yN: 0.540, T: 0.789, L: 1.00, Size: 0.48 },  // score 9 — dashboard
+  { yN: 0.600, T: 0.813, L: 1.00, Size: 0.53 },  // score 8 — wheel → dashboard
+  { yN: 0.680, T: 0.837, L: 1.00, Size: 0.59 },  // score 7 — wheel → dashboard
+  { yN: 0.760, T: 0.867, L: 1.00, Size: 0.63 },  // score 6 — steering wheel
+  { yN: 0.820, T: 0.887, L: 1.00, Size: 0.67 },  // score 5 — wheel → body
   { yN: 0.870, T: 0.925, L: 0.99, Size: 0.71 },  // score 4 — wheel → body
   { yN: 0.920, T: 1.005, L: 0.99, Size: 0.82 },  // score 3 — face / chest
   { yN: 0.970, T: 1.075, L: 1.00, Size: 0.91 },  // score 2 — head / body
@@ -7138,13 +7138,13 @@ function sg_defaultLaserShape() {
 // values are cloned into sg_laserShapes on first lookup so per-project
 // edits keep overriding them. Keep the structure {[score]: { pts: [...] }}.
 var SG_LASER_SHAPES = {
-  // example:
-  // 9: { pts: [
-  //   { xN: -0.5, dyN: 0, visibleAfter: true  },
-  //   { xN: -0.1, dyN: -0.04, visibleAfter: false },
-  //   { xN:  0.1, dyN: -0.04, visibleAfter: true  },
-  //   { xN:  0.5, dyN: 0, visibleAfter: true  }
-  // ] }
+  6: { pts: [ { xN: -0.500, dyN: -0.035, visibleAfter: true }, { xN: -0.425, dyN: -0.049, visibleAfter: true }, { xN: -0.376, dyN: -0.131, visibleAfter: true }, { xN: -0.328, dyN: -0.180, visibleAfter: true }, { xN: -0.269, dyN: -0.192, visibleAfter: true }, { xN: -0.214, dyN: -0.146, visibleAfter: true }, { xN: -0.167, dyN: -0.065, visibleAfter: true }, { xN: -0.131, dyN: -0.014, visibleAfter: true }, { xN: 0.011, dyN: -0.008, visibleAfter: true }, { xN: 0.500, dyN: 0.000, visibleAfter: true } ] },  // steering wheel
+  7: { pts: [ { xN: -0.500, dyN: 0.000, visibleAfter: true }, { xN: -0.431, dyN: -0.001, visibleAfter: false }, { xN: -0.401, dyN: -0.000, visibleAfter: true }, { xN: -0.177, dyN: 0.002, visibleAfter: false }, { xN: -0.144, dyN: -0.002, visibleAfter: true }, { xN: 0.500, dyN: 0.000, visibleAfter: true } ] },  // wheel → dashboard
+  8: { pts: [ { xN: -0.500, dyN: 0.000, visibleAfter: true }, { xN: -0.427, dyN: -0.003, visibleAfter: false }, { xN: -0.396, dyN: -0.000, visibleAfter: true }, { xN: -0.184, dyN: -0.000, visibleAfter: false }, { xN: -0.154, dyN: -0.002, visibleAfter: true }, { xN: 0.500, dyN: 0.000, visibleAfter: true } ] },  // wheel → dashboard
+  9: { pts: [ { xN: -0.500, dyN: 0.000, visibleAfter: true }, { xN: -0.421, dyN: -0.000, visibleAfter: false }, { xN: -0.386, dyN: -0.002, visibleAfter: true }, { xN: -0.189, dyN: 0.002, visibleAfter: false }, { xN: -0.158, dyN: 0.004, visibleAfter: true }, { xN: 0.500, dyN: 0.000, visibleAfter: true } ] },  // dashboard
+  10: { pts: [ { xN: -0.500, dyN: -0.008, visibleAfter: true }, { xN: -0.421, dyN: -0.004, visibleAfter: true }, { xN: -0.362, dyN: -0.079, visibleAfter: false }, { xN: -0.204, dyN: -0.080, visibleAfter: true }, { xN: -0.019, dyN: -0.004, visibleAfter: true }, { xN: 0.500, dyN: 0.000, visibleAfter: true } ] },  // dashboard → windshield
+  11: { pts: [ { xN: -0.500, dyN: 0.000, visibleAfter: false }, { xN: -0.080, dyN: 0.005, visibleAfter: true }, { xN: 0.500, dyN: 0.000, visibleAfter: true } ] },  // dashboard → windshield
+  12: { pts: [ { xN: -0.500, dyN: 0.000, visibleAfter: false }, { xN: -0.130, dyN: -0.003, visibleAfter: true }, { xN: 0.500, dyN: 0.000, visibleAfter: true } ] }  // dashboard → windshield
 };
 // Per-score shapes; populated lazily from SG_LASER_SHAPES on first lookup
 // (so the snapshot dumped by "Copy distance mapping" stays lean and
