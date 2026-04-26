@@ -7168,10 +7168,10 @@ var SG_DISTANCE_SCORE_YN = {
 // and "Copy distance mapping" button — landmark anchors:
 //   score 15 ≈ yN 0.00 (over windshield)  …  score 1 ≈ yN 1.00 (behind listener)
 var SG_DISTANCE_CALIB = [
-  { yN: 0.000, T: 0.473, L: 0.44, Size: 0.19 },  // score 15 — over windshield
-  { yN: 0.150, T: 0.580, L: 0.63, Size: 0.24 },  // score 14 — top of windshield
-  { yN: 0.240, T: 0.671, L: 0.79, Size: 0.29 },  // score 13 — windshield
-  { yN: 0.320, T: 0.706, L: 0.68, Size: 0.34 },  // score 12 — dashboard → windshield
+  { yN: 0.000, T: 0.473, L: 0.26, Size: 0.19 },  // score 15 — over windshield
+  { yN: 0.150, T: 0.580, L: 0.50, Size: 0.24 },  // score 14 — top of windshield
+  { yN: 0.240, T: 0.671, L: 0.70, Size: 0.29 },  // score 13 — windshield
+  { yN: 0.320, T: 0.706, L: 0.88, Size: 0.39 },  // score 12 — dashboard → windshield
   { yN: 0.390, T: 0.728, L: 0.76, Size: 0.36 },  // score 11 — dashboard → windshield
   { yN: 0.460, T: 0.765, L: 1.00, Size: 0.39 },  // score 10 — dashboard → windshield
   { yN: 0.540, T: 0.789, L: 1.00, Size: 0.48 },  // score 9 — dashboard
@@ -7386,7 +7386,7 @@ var SG_LASER_SHAPES = {
   9: { pts: [ { xN: -0.500, dyN: 0.000, visibleAfter: true }, { xN: -0.421, dyN: -0.000, visibleAfter: false }, { xN: -0.386, dyN: -0.002, visibleAfter: true }, { xN: -0.189, dyN: 0.002, visibleAfter: false }, { xN: -0.158, dyN: 0.004, visibleAfter: true }, { xN: 0.500, dyN: 0.000, visibleAfter: true } ] },  // dashboard
   10: { pts: [ { xN: -0.500, dyN: -0.008, visibleAfter: true }, { xN: -0.421, dyN: -0.004, visibleAfter: true }, { xN: -0.362, dyN: -0.079, visibleAfter: false }, { xN: -0.204, dyN: -0.080, visibleAfter: true }, { xN: -0.019, dyN: -0.004, visibleAfter: true }, { xN: 0.500, dyN: 0.000, visibleAfter: true } ] },  // dashboard → windshield
   11: { pts: [ { xN: -0.500, dyN: 0.000, visibleAfter: false }, { xN: -0.080, dyN: 0.005, visibleAfter: true }, { xN: 0.500, dyN: 0.000, visibleAfter: true } ] },  // dashboard → windshield
-  12: { pts: [ { xN: -0.500, dyN: 0.000, visibleAfter: false }, { xN: -0.130, dyN: -0.003, visibleAfter: true }, { xN: 0.500, dyN: 0.000, visibleAfter: true } ] },  // dashboard → windshield
+  12: { pts: [ { xN: -0.500, dyN: 0.000, visibleAfter: false }, { xN: -0.130, dyN: -0.019, visibleAfter: true }, { xN: 0.146, dyN: -0.014, visibleAfter: true }, { xN: 0.500, dyN: 0.030, visibleAfter: true } ] },  // dashboard → windshield
   13: { pts: [ { xN: -0.500, dyN: 0.000, visibleAfter: false }, { xN: -0.152, dyN: -0.004, visibleAfter: true }, { xN: 0.500, dyN: 0.000, visibleAfter: true } ] }   // windshield
 };
 
@@ -7403,7 +7403,7 @@ var SG_LASER_SHAPES = {
 // Paste the SG_PLANE_MASKS block emitted by "Copy distance mapping"
 // into this literal to ship the user's mask set as the new defaults.
 var SG_PLANE_MASKS = [
-  { points: [ { xN: -0.049, yN: 0.967 }, { xN: -0.109, yN: 0.997 }, { xN: -0.465, yN: 0.998 }, { xN: -0.421, yN: 0.965 }, { xN: -0.394, yN: 0.915 }, { xN: -0.344, yN: 0.859 }, { xN: -0.298, yN: 0.841 }, { xN: -0.256, yN: 0.851 }, { xN: -0.183, yN: 0.893 }, { xN: -0.106, yN: 0.925 } ] }  // M1 — steering wheel rim
+  { points: [ { xN: -0.423, yN: 0.988 }, { xN: -0.500, yN: 1.011 }, { xN: -0.500, yN: 0.927 }, { xN: -0.447, yN: 0.927 }, { xN: -0.390, yN: 0.926 }, { xN: -0.343, yN: 0.861 }, { xN: -0.297, yN: 0.842 }, { xN: -0.256, yN: 0.851 }, { xN: -0.183, yN: 0.893 }, { xN: -0.106, yN: 0.925 }, { xN: -0.050, yN: 0.967 }, { xN: -0.095, yN: 0.991 }, { xN: -0.163, yN: 0.984 }, { xN: -0.150, yN: 1.024 }, { xN: -0.142, yN: 1.058 }, { xN: -0.169, yN: 1.058 }, { xN: -0.176, yN: 1.029 }, { xN: -0.192, yN: 0.988 }, { xN: -0.393, yN: 0.989 }, { xN: -0.412, yN: 1.047 }, { xN: -0.438, yN: 1.044 }, { xN: -0.431, yN: 1.013 } ] }  // M1 — steering wheel rim + spokes
 ];
 
 // Per-script runtime state; defaults are cloned in by
