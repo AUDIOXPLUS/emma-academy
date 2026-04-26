@@ -7342,17 +7342,32 @@ function sg_resolveLaserAtScore(score, vL, vR, vC, sT, sH, horizonY, travel) {
   return { screenPts: screenPts, lineY: lineY, planeL: planeL, planeR: planeR };
 }
 
-// Draw a translucent quadrilateral bounded by the laser curves of
-// scores 12 (bottom) and 15 (top). The two curves are connected at
-// their endpoints with straight diagonals so the polygon closes
-// around the windshield region of the dashboard, simulating the
-// glass plane that those four scores intersect. Filled with a
-// vertical teal gradient so the user can still see the dashboard
-// image underneath.
-function sg_drawWindshieldPlane(ctx, W, H, vL, vR, vC, sT, sB, d, horizonY, travel) {
+// Draw a translucent quadrilateral bounded by the laser curve of score
+// 12 (bottom — the windshield-base anchor) and the curve of the score
+// the marker is currently on (top — moves in real time as the user
+// steps from 12 up toward 15). The two curves are connected at their
+// endpoints with straight diagonals so the polygon closes around the
+// windshield region of the dashboard, simulating the glass plane that
+// those scores intersect. Filled with a vertical teal gradient so the
+// dashboard image stays visible underneath.
+//
+// The plane is suppressed when the marker is at or below score 12
+// (the polygon would be degenerate or inverted) — i.e. it materialises
+// only as the user climbs from 12 toward 15.
+function sg_drawWindshieldPlane(ctx, W, H, vL, vR, vC, sT, sB, d, horizonY, travel, currentYN) {
+  if (currentYN == null) return;
   var sH = sB - sT;
-  var top = sg_resolveLaserAtScore(15, vL, vR, vC, sT, sH, horizonY, travel);
-  var bot = sg_resolveLaserAtScore(12, vL, vR, vC, sT, sH, horizonY, travel);
+  var bottomScore = 12;
+  var bottomYN = SG_DISTANCE_SCORE_YN[bottomScore];
+  if (bottomYN == null) return;
+  // Only show when the marker sits ABOVE the windshield base (yN < 0.32).
+  // Add a small ε so a marker exactly on score 12 doesn't paint a
+  // zero-thickness sliver.
+  if (currentYN >= bottomYN - 0.005) return;
+  var topScore = sg_yToDistanceScore(currentYN);
+  if (topScore == null) return;
+  var top = sg_resolveLaserAtScore(topScore,    vL, vR, vC, sT, sH, horizonY, travel);
+  var bot = sg_resolveLaserAtScore(bottomScore, vL, vR, vC, sT, sH, horizonY, travel);
   if (!top || !bot) return;
   ctx.save();
   // Same clip as the laser line: vertical bleed past sB so the polygon
@@ -7754,10 +7769,13 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
     var extra    = (floorY - horizonY) * 0.25;   // headroom past the floor
     var travel   = (floorY - horizonY) + extra;
 
-    // Windshield plane overlay — quadrilateral bounded by the laser
-    // curves of scores 12 (bottom) and 15 (top). Drawn before the live
+    // Windshield plane overlay — quadrilateral whose bottom edge is the
+    // laser curve at score 12 (windshield base) and whose top edge is
+    // the laser curve at the score the marker is currently on. The
+    // plane materialises only when the marker climbs above 12, then
+    // grows in real time as it approaches 15. Drawn before the live
     // laser so the active marker line still reads on top.
-    sg_drawWindshieldPlane(ctx, W, H, vL, vR, vC, sT, sB, d, horizonY, travel);
+    sg_drawWindshieldPlane(ctx, W, H, vL, vR, vC, sT, sB, d, horizonY, travel, yN);
 
     // T (laser depth) and L (line length frac) come from the merged
     // calibration (default + per-score user calib). During an active line
