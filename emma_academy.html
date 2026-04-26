@@ -7376,12 +7376,56 @@ function sg_drawWindshieldPlane(ctx, W, H, vL, vR, vC, sT, sB, d, horizonY, trav
   var top = sg_resolveLaserAtScore(topScore,    vL, vR, vC, sT, sH, horizonY, travel);
   var bot = sg_resolveLaserAtScore(bottomScore, vL, vR, vC, sT, sH, horizonY, travel);
   if (!top || !bot) return;
+
+  // Wherever EITHER bounding laser has a hidden segment we must also
+  // suppress the plane in that X strip — the hidden segment models a
+  // dashboard element (e.g. the steering wheel rim) sitting in front
+  // of the laser, so painting the plane on top would defeat the
+  // perspective illusion. Build the union of hidden X intervals from
+  // both curves, merge overlaps, then add them as inner rectangles to
+  // the clip path: even-odd fill turns those rectangles into holes.
+  function laserHiddenIntervals(score, planeL, planeR) {
+    var shape = sg_getLaserShape(score, false);
+    var pts = (shape && shape.pts && shape.pts.length >= 2) ? shape.pts : null;
+    if (!pts) return [];
+    var laserLen = planeR - planeL;
+    var out = [];
+    for (var i = 0; i < pts.length - 1; i++) {
+      if (pts[i].visibleAfter !== false) continue;
+      var xL = planeL + (pts[i].xN     + 0.5) * laserLen;
+      var xR = planeL + (pts[i + 1].xN + 0.5) * laserLen;
+      if (xR > xL) out.push({ xL: xL, xR: xR });
+    }
+    return out;
+  }
+  var hiddenIntervals = laserHiddenIntervals(topScore,    top.planeL, top.planeR)
+                .concat(laserHiddenIntervals(bottomScore, bot.planeL, bot.planeR));
+  // Merge overlapping intervals (otherwise even-odd could re-fill the
+  // overlap and reveal the plane in a region that should stay hidden).
+  hiddenIntervals.sort(function(a, b){ return a.xL - b.xL; });
+  var merged = [];
+  for (var hi = 0; hi < hiddenIntervals.length; hi++) {
+    var cur = hiddenIntervals[hi];
+    var prev = merged[merged.length - 1];
+    if (prev && cur.xL <= prev.xR) {
+      prev.xR = Math.max(prev.xR, cur.xR);
+    } else {
+      merged.push({ xL: cur.xL, xR: cur.xR });
+    }
+  }
+
   ctx.save();
-  // Same clip as the laser line: vertical bleed past sB so the polygon
-  // never gets cropped if score 12's curve dips beyond the floor.
+  // Same vertical bleed as the laser line, plus an even-odd hole per
+  // hidden X interval so the plane paint never lands on a "behind the
+  // wheel" strip.
   ctx.beginPath();
   ctx.rect(vL, sT, vR - vL, H - sT);
-  ctx.clip();
+  for (var mi = 0; mi < merged.length; mi++) {
+    var hL = Math.max(vL, merged[mi].xL);
+    var hR = Math.min(vR, merged[mi].xR);
+    if (hR > hL) ctx.rect(hL, sT, hR - hL, H - sT);
+  }
+  ctx.clip('evenodd');
 
   // Build the closed path: top curve (left → right), straight diagonal
   // down to the bottom-right endpoint, bottom curve back (right → left),
