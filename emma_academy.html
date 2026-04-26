@@ -8628,14 +8628,6 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
   ctx.lineWidth = Math.max(1*d, 2*d * (0.55 + 0.75*sizeT));
   ctx.beginPath(); ctx.arc(mx, my, radius, 0, Math.PI*2); ctx.stroke();
 
-  // Crosshair
-  ctx.strokeStyle = 'rgba(255,255,255,.85)';
-  ctx.lineWidth = 1.2*d;
-  ctx.beginPath();
-  ctx.moveTo(mx - radius*0.55, my); ctx.lineTo(mx + radius*0.55, my);
-  ctx.moveTo(mx, my - radius*0.55); ctx.lineTo(mx, my + radius*0.55);
-  ctx.stroke();
-
   // Score + description rendered BELOW the dot, follows the marker.
   // The box also shows three ◀ value ▶ stepper rows for fine-tuning yN, T
   // and L; clicks on the arrows are picked up by sg_onPD via the
