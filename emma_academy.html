@@ -7746,6 +7746,21 @@ function sg_laserVisibleXRuns(screenPts, shapePts) {
 // stroked: only the gradient fill is visible.
 //
 // Suppressed when the marker sits exactly on score 12.
+// Draw the cockpit plane as the UNION of the strips between every
+// consecutive score from the anchor (score 12) toward the marker —
+// each strip rendered as its own quadrilateral so the per-score L
+// step (the line length narrowing toward the windshield) stays
+// visible at every score boundary.
+//
+// Plane masks (sg_planeMasks) carve holes through the entire union
+// in a single even-odd clip set up before the strip loop, so a
+// single mask polygon is enough to hide the plane behind a dashboard
+// element no matter how many strips overlap at that spot. Hidden
+// laser segments do NOT carve the plane any more — that job belongs
+// to the explicit mask editor.
+//
+// Suppressed when the marker sits exactly on score 12 (no strips to
+// draw).
 function sg_drawWindshieldPlane(ctx, W, H, vL, vR, vC, sT, sB, d, horizonY, travel, currentYN) {
   if (currentYN == null) return;
   var sH = sB - sT;
@@ -7756,21 +7771,21 @@ function sg_drawWindshieldPlane(ctx, W, H, vL, vR, vC, sT, sB, d, horizonY, trav
   if (Math.abs(deltaYN) < 0.005) return;
   var markerScore = sg_yToDistanceScore(currentYN);
   if (markerScore == null) return;
-  // anchor sits on the TOP edge when the marker is below 12, BOTTOM
-  // edge otherwise. Gradient flips direction so the dense end always
-  // hugs score 12.
-  var anchorIsTop = (deltaYN > 0);
-  var topScore    = anchorIsTop ? anchorScore : markerScore;
-  var bottomScore = anchorIsTop ? markerScore : anchorScore;
-  var top = sg_resolveLaserAtScore(topScore,    vL, vR, vC, sT, sH, horizonY, travel);
-  var bot = sg_resolveLaserAtScore(bottomScore, vL, vR, vC, sT, sH, horizonY, travel);
-  if (!top || !bot) return;
+
+  // Build the ordered list of scores from anchor toward marker.
+  // Marker above 12 → ascending; below 12 → descending.
+  var scoreList = [];
+  if (markerScore > anchorScore) {
+    for (var sc = anchorScore; sc <= markerScore; sc++) scoreList.push(sc);
+  } else {
+    for (var sc = anchorScore; sc >= markerScore; sc--) scoreList.push(sc);
+  }
+  if (scoreList.length < 2) return;
 
   ctx.save();
-  // Clip to scoring field (with a generous bottom bleed for low scores)
-  // first, then knock the user-defined masks out of that clip via
-  // even-odd: any point inside a mask polygon falls into an "even"
-  // count zone and the fill skips it.
+  // Even-odd clip = scoring-field rect minus every mask polygon. Any
+  // pixel inside a mask falls into a "skip" zone so subsequent fills
+  // don't land there. Set up once; every strip below inherits it.
   ctx.beginPath();
   ctx.rect(vL, sT, vR - vL, H - sT);
   if (sg_planeMasks && sg_planeMasks.length) {
@@ -7784,26 +7799,31 @@ function sg_drawWindshieldPlane(ctx, W, H, vL, vR, vC, sT, sB, d, horizonY, trav
   }
   ctx.clip('evenodd');
 
-  ctx.beginPath();
-  ctx.moveTo(top.screenPts[0].x, top.screenPts[0].y);
-  sg_appendLaserCurvePath(ctx, top.screenPts, false);
-  ctx.lineTo(bot.screenPts[bot.screenPts.length - 1].x,
-             bot.screenPts[bot.screenPts.length - 1].y);
-  sg_appendLaserCurvePath(ctx, bot.screenPts, true);
-  ctx.closePath();
-
-  var grad = ctx.createLinearGradient(0, top.lineY, 0, bot.lineY);
-  if (anchorIsTop) {
-    grad.addColorStop(0,    'rgba(0,229,204,0.18)');
-    grad.addColorStop(0.5,  'rgba(0,229,204,0.10)');
-    grad.addColorStop(1,    'rgba(0,229,204,0.05)');
-  } else {
-    grad.addColorStop(0,    'rgba(0,229,204,0.05)');
-    grad.addColorStop(0.5,  'rgba(0,229,204,0.10)');
-    grad.addColorStop(1,    'rgba(0,229,204,0.18)');
+  // Paint each strip with a uniform low alpha. Strips share their
+  // boundary curves but never overlap in area, so the resulting fill
+  // reads as one continuous translucent surface with the per-score L
+  // step preserved at the boundaries.
+  for (var i = 0; i < scoreList.length - 1; i++) {
+    var scA = scoreList[i];
+    var scB = scoreList[i + 1];
+    var yA = SG_DISTANCE_SCORE_YN[scA];
+    var yB = SG_DISTANCE_SCORE_YN[scB];
+    if (yA == null || yB == null) continue;
+    var topScore = (yA < yB) ? scA : scB;
+    var botScore = (yA < yB) ? scB : scA;
+    var top = sg_resolveLaserAtScore(topScore, vL, vR, vC, sT, sH, horizonY, travel);
+    var bot = sg_resolveLaserAtScore(botScore, vL, vR, vC, sT, sH, horizonY, travel);
+    if (!top || !bot) continue;
+    ctx.beginPath();
+    ctx.moveTo(top.screenPts[0].x, top.screenPts[0].y);
+    sg_appendLaserCurvePath(ctx, top.screenPts, false);
+    ctx.lineTo(bot.screenPts[bot.screenPts.length - 1].x,
+               bot.screenPts[bot.screenPts.length - 1].y);
+    sg_appendLaserCurvePath(ctx, bot.screenPts, true);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(0,229,204,0.10)';
+    ctx.fill();
   }
-  ctx.fillStyle = grad;
-  ctx.fill();
   ctx.restore();
 }
 
