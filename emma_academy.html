@@ -1428,6 +1428,11 @@ body.immersive #inst-picker,body.immersive #btn-add-wrap{opacity:0;pointer-event
           <input type="checkbox" id="sg-dc-edit-laser"> Edit laser shape
         </label>
         <button class="tb-dd-reset" id="sg-btn-laser-reset" style="margin-top:4px" title="Reset the laser shape of the current score back to a straight line">&#8635; Reset shape (current score)</button>
+        <label class="tb-dd-check" title="Tap canvas to add a mask point; tap '+ New mask' to start another polygon; tap a point to remove it or delete its mask. Masks carve holes in the cockpit plane to simulate dashboard elements in front of it.">
+          <input type="checkbox" id="sg-dc-edit-mask"> Edit plane masks
+        </label>
+        <button class="tb-dd-reset" id="sg-btn-mask-new" style="margin-top:4px" title="Start a new mask polygon. The next taps on the canvas will add points to it.">&#10133; New mask</button>
+        <button class="tb-dd-reset" id="sg-btn-mask-reset" style="margin-top:4px" title="Remove every mask polygon and revert to the baked SG_PLANE_MASKS defaults.">&#8635; Reset masks (all)</button>
         <button class="tb-dd-reset" id="sg-btn-copy-distance" style="margin-top:4px" title="Copy the current distance mapping (default + your edits) as a JS array literal">&#128203; Copy distance mapping</button>
         <div class="tb-dd-sep"></div>
         <button class="tb-dd-reset" id="sg-dc-reset">&#8635; Reset</button>
@@ -6089,22 +6094,67 @@ function sg_initIfNeeded() {
       });
     }
     var editLaserCb = document.getElementById('sg-dc-edit-laser');
+    var editMaskCb  = document.getElementById('sg-dc-edit-mask');
+    function syncEditorCheckboxes() {
+      if (editLaserCb) editLaserCb.checked = !!sg_laserEditMode;
+      if (editMaskCb)  editMaskCb.checked  = !!sg_planeMaskEditMode;
+    }
     if (editLaserCb) {
-      editLaserCb.checked = !!sg_laserEditMode;
       editLaserCb.addEventListener('change', function(){
         sg_laserEditMode = !!editLaserCb.checked;
-        // Drop the on-canvas selection whenever the editor is disabled
-        // so the action panel doesn't linger when the user reopens it.
-        if (!sg_laserEditMode) sg_laserSelected = null;
+        // Laser-shape and mask editors are mutually exclusive — turning
+        // one on disables the other so pointer gestures land on the
+        // tool the user just picked instead of fighting for priority.
+        if (sg_laserEditMode) {
+          sg_planeMaskEditMode = false;
+          sg_planeMaskSelected = null;
+          sg_planeMaskActive   = null;
+        } else {
+          sg_laserSelected = null;
+        }
+        syncEditorCheckboxes();
         sg_drawFrame(sg_curT || 0);
       });
     }
+    if (editMaskCb) {
+      editMaskCb.addEventListener('change', function(){
+        sg_planeMaskEditMode = !!editMaskCb.checked;
+        if (sg_planeMaskEditMode) {
+          sg_laserEditMode = false;
+          sg_laserSelected = null;
+        } else {
+          sg_planeMaskSelected = null;
+          sg_planeMaskActive   = null;
+        }
+        syncEditorCheckboxes();
+        sg_drawFrame(sg_curT || 0);
+      });
+    }
+    syncEditorCheckboxes();
     var resetLaserBtn = document.getElementById('sg-btn-laser-reset');
     if (resetLaserBtn) resetLaserBtn.addEventListener('click', function(){
       var sc = sg_state.distanceY != null ? sg_yToDistanceScore(sg_state.distanceY) : null;
       if (!sg_laserShapeable(sc)) return;
       sg_resetLaserShape(sc);
       sg_laserSelected = null;
+      sg_drawFrame(sg_curT || 0);
+    });
+    var newMaskBtn = document.getElementById('sg-btn-mask-new');
+    if (newMaskBtn) newMaskBtn.addEventListener('click', function(){
+      // Toggle the editor on so the user can immediately drop points on
+      // the canvas after pressing the button.
+      sg_planeMaskEditMode = true;
+      sg_laserEditMode = false;
+      sg_laserSelected = null;
+      sg_planeMaskSelected = null;
+      sg_planeMasks.push({ points: [] });
+      sg_planeMaskActive = sg_planeMasks.length - 1;
+      syncEditorCheckboxes();
+      sg_drawFrame(sg_curT || 0);
+    });
+    var resetMaskBtn = document.getElementById('sg-btn-mask-reset');
+    if (resetMaskBtn) resetMaskBtn.addEventListener('click', function(){
+      sg_resetPlaneMasksFromDefault();
       sg_drawFrame(sg_curT || 0);
     });
   })();
@@ -6178,6 +6228,16 @@ function sg_loadFromData(data, fileName) {
       pts[pts.length - 1].xN = +0.5; pts[pts.length - 1].fixed = true;
       sg_laserShapes[sc] = { pts: pts };
     });
+  }
+  // Plane masks — fall back to the baked SG_PLANE_MASKS defaults if
+  // the project JSON omits the field, otherwise replace wholesale.
+  if (Array.isArray(data.planeMasks)) {
+    sg_planeMasks = sg_clonePlaneMasks(data.planeMasks);
+    sg_planeMaskActive = null;
+    sg_planeMaskSelected = null;
+    sg_planeMaskDragPt = null;
+  } else {
+    sg_resetPlaneMasksFromDefault();
   }
   sg_syncDashSliders();
   sg_ab = null; sg_dur = 0; sg_curT = 0; sg_offset = 0;
@@ -6502,6 +6562,61 @@ function sg_onPD(e) {
     //     pointer X and immediately enter drag so the user can fine-tune
     //     it without releasing.
     // Off-dashboard scores have no shape and fall through to line drag.
+    // ── Plane-mask editing (mutually exclusive with laser-shape edit) ──
+    // Same gesture vocabulary as the laser-shape editor: panel buttons
+    // first, then waypoint pickup (drag-or-tap), then "tap on empty
+    // canvas" which extends or starts a polygon.
+    if (sg_planeMaskEditMode) {
+      var fb = sg_getFieldBounds();
+      // 1) Panel buttons.
+      if (_sg_plane_mask_panel && sg_planeMaskSelected) {
+        var pmBtn = sg_planeMaskPanelHitTest(p);
+        if (pmBtn) {
+          sg_applyPlaneMaskPanelAction(pmBtn);
+          e.preventDefault();
+          return;
+        }
+      }
+      // 2) Existing waypoint pickup.
+      var hitWp = sg_planeMaskWaypointHit(p, fb.vL, fb.vR, fb.sT, fb.sB);
+      if (hitWp) {
+        sg_planeMaskActive = hitWp.mask;
+        sg_planeMaskDragPt = {
+          mask: hitWp.mask, idx: hitWp.idx,
+          startX: p.x, startY: p.y,
+          moved: false
+        };
+        sg_canvas.setPointerCapture(e.pointerId);
+        sg_canvas.style.cursor = 'grabbing';
+        e.preventDefault();
+        return;
+      }
+      // 3) Tap on empty canvas → add point to active polygon (or to a
+      //    fresh polygon if there isn't one yet). Drag the new point in
+      //    place so the user can fine-tune without releasing.
+      var coordN = sg_canvasToMaskN(p, fb.vL, fb.vR, fb.sT, fb.sB);
+      if (coordN) {
+        if (sg_planeMaskActive == null
+            || !sg_planeMasks[sg_planeMaskActive]) {
+          sg_planeMasks.push({ points: [] });
+          sg_planeMaskActive = sg_planeMasks.length - 1;
+        }
+        var activeMask = sg_planeMasks[sg_planeMaskActive];
+        activeMask.points.push({ xN: coordN.xN, yN: coordN.yN });
+        var newIdx = activeMask.points.length - 1;
+        sg_planeMaskSelected = { mask: sg_planeMaskActive, idx: newIdx };
+        sg_planeMaskDragPt = {
+          mask: sg_planeMaskActive, idx: newIdx,
+          startX: p.x, startY: p.y,
+          moved: true
+        };
+        sg_canvas.setPointerCapture(e.pointerId);
+        sg_canvas.style.cursor = 'grabbing';
+        sg_drawFrame(sg_curT);
+        e.preventDefault();
+        return;
+      }
+    }
     if (sg_laserEditMode && _sg_distance_line) {
       var curScore = _sg_distance_line.score;
       if (sg_laserShapeable(curScore)) {
@@ -6634,6 +6749,29 @@ function sg_onPM(e) {
   }
   if (sg_state.toolMode === 'distance') {
     var p = sg_getCanvasPt(e);
+    // ── Active plane-mask waypoint drag ─────────────────────────────────
+    if (sg_planeMaskDragPt) {
+      if (!sg_planeMaskDragPt.moved) {
+        var pmDx = p.x - sg_planeMaskDragPt.startX;
+        var pmDy = p.y - sg_planeMaskDragPt.startY;
+        if ((pmDx*pmDx + pmDy*pmDy) >= (SG_LASER_TAP_THRESHOLD_PX * SG_LASER_TAP_THRESHOLD_PX)) {
+          sg_planeMaskDragPt.moved = true;
+        }
+      }
+      if (sg_planeMaskDragPt.moved) {
+        var pmMask = sg_planeMasks[sg_planeMaskDragPt.mask];
+        if (pmMask && pmMask.points[sg_planeMaskDragPt.idx]) {
+          var fbm = sg_getFieldBounds();
+          var nrm = sg_canvasToMaskN(p, fbm.vL, fbm.vR, fbm.sT, fbm.sB);
+          if (nrm) {
+            pmMask.points[sg_planeMaskDragPt.idx].xN = nrm.xN;
+            pmMask.points[sg_planeMaskDragPt.idx].yN = nrm.yN;
+            sg_drawFrame(sg_curT);
+          }
+        }
+      }
+      return;
+    }
     // ── Active laser-shape waypoint drag ─────────────────────────────────
     if (sg_laserDragWp) {
       var line = _sg_distance_line;
@@ -6671,11 +6809,17 @@ function sg_onPM(e) {
     }
     if (!sg_state.distanceDragging) {
       // Hover-cursor feedback: pointer over an arrow → 'pointer'; over a
-      // laser waypoint (when edit mode is on) → 'grab'; over the laser
-      // line → 'grab'; anywhere else → default.
+      // mask or laser waypoint (when an editor is on) → 'grab'; over
+      // the laser line → 'grab'; anywhere else → default. Mask edit
+      // also flips the cursor to 'crosshair' so the user knows taps on
+      // empty canvas land as new mask points.
       var arrowHit = _sg_distance_arrows && sg_distanceArrowHitTest(p);
       if (arrowHit) {
         sg_canvas.style.cursor = 'pointer';
+      } else if (sg_planeMaskEditMode) {
+        var fbh = sg_getFieldBounds();
+        var hitMaskPt = sg_planeMaskWaypointHit(p, fbh.vL, fbh.vR, fbh.sT, fbh.sB);
+        sg_canvas.style.cursor = hitMaskPt ? 'grab' : 'crosshair';
       } else if (sg_laserEditMode && _sg_distance_line && sg_laserShapeable(_sg_distance_line.score) && sg_laserWaypointHit(p, _sg_distance_line.score)) {
         sg_canvas.style.cursor = 'grab';
       } else if (sg_distanceLineHit(p)) {
@@ -6715,6 +6859,25 @@ function sg_onPU(e) {
     return;
   }
   if (sg_state.toolMode === 'distance') {
+    // Release plane-mask drag first so the laser drag branch never
+    // sees this gesture.
+    if (sg_planeMaskDragPt) {
+      if (!sg_planeMaskDragPt.moved) {
+        // Stationary tap on an existing waypoint → toggle selection.
+        var pms = sg_planeMaskSelected;
+        var sm = sg_planeMaskDragPt.mask;
+        var si = sg_planeMaskDragPt.idx;
+        if (pms && pms.mask === sm && pms.idx === si) {
+          sg_planeMaskSelected = null;
+        } else {
+          sg_planeMaskSelected = { mask: sm, idx: si };
+        }
+      }
+      sg_planeMaskDragPt = null;
+      sg_canvas.style.cursor = '';
+      sg_drawFrame(sg_curT);
+      return;
+    }
     // Release laser-shape drag first so we don't fall into the line-drag
     // branch and toggle the score by accident.
     if (sg_laserDragWp) {
@@ -6778,6 +6941,48 @@ function sg_laserPanelHitTest(p) {
     }
   }
   return null;
+}
+
+// Hit-test the mask-point action panel (Remove point, Delete mask,
+// Close). Same shape/contract as sg_laserPanelHitTest.
+function sg_planeMaskPanelHitTest(p) {
+  if (!_sg_plane_mask_panel) return null;
+  var keys = ['remove', 'deleteMask', 'close'];
+  for (var i = 0; i < keys.length; i++) {
+    var b = _sg_plane_mask_panel[keys[i]];
+    if (!b || b.enabled === false) continue;
+    if (p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h) {
+      return keys[i];
+    }
+  }
+  return null;
+}
+
+// Apply an action triggered by the mask panel.
+function sg_applyPlaneMaskPanelAction(action) {
+  if (!sg_planeMaskSelected) return;
+  var mIdx = sg_planeMaskSelected.mask;
+  var pIdx = sg_planeMaskSelected.idx;
+  var mask = sg_planeMasks[mIdx];
+  if (!mask || !mask.points[pIdx]) {
+    sg_planeMaskSelected = null;
+    sg_drawFrame(sg_curT);
+    return;
+  }
+  if (action === 'remove' && mask.points.length > 1) {
+    mask.points.splice(pIdx, 1);
+    // If the polygon dropped below 3 points it's no longer renderable
+    // but we keep it so the user can grow it again with new taps.
+    sg_planeMaskSelected = null;
+  } else if (action === 'deleteMask') {
+    sg_planeMasks.splice(mIdx, 1);
+    if (sg_planeMaskActive === mIdx) sg_planeMaskActive = null;
+    else if (sg_planeMaskActive != null && sg_planeMaskActive > mIdx) sg_planeMaskActive--;
+    sg_planeMaskSelected = null;
+  } else if (action === 'close') {
+    sg_planeMaskSelected = null;
+  }
+  sg_drawFrame(sg_curT);
 }
 
 // Apply an action triggered by the on-canvas panel.
@@ -6850,6 +7055,19 @@ function sg_canvasYToNorm(yPx) {
   var t = (yPx - horizonY) / (maxY - horizonY);
   var K = SG_PERSP_K;
   return (t * K) / (t * K + (1 - t));     // inverse of the forward curve
+}
+
+// Compute the scoring-field bounds in canvas pixels — same numbers
+// the renderer uses every frame. Pulled out so pointer handlers that
+// need to convert click coords to scoring-field-normalised values
+// don't have to inline the arithmetic.
+function sg_getFieldBounds() {
+  var d = window.devicePixelRatio || 1;
+  var W = sg_canvas.width, H = sg_canvas.height;
+  var vL = 34*d, vR = W - 34*d;
+  var vC = (vL + vR) / 2;
+  var sT = (44 + 18)*d, sB = H - (60 + 18)*d;
+  return { d: d, W: W, H: H, vL: vL, vR: vR, vC: vC, sT: sT, sB: sB };
 }
 
 function sg_getCanvasPt(e) {
@@ -7056,6 +7274,29 @@ function sg_distanceMappingToString() {
   }
   lines.push('};');
 
+  // Append plane masks — emit the entire current set (whatever the
+  // user has on screen) so pasting the snippet back replaces the
+  // baked defaults wholesale.
+  lines.push('');
+  lines.push('// Paste this block over the SG_PLANE_MASKS literal in emma_academy.html');
+  lines.push('// to ship the current cockpit-plane masks as the new defaults.');
+  lines.push('var SG_PLANE_MASKS = [');
+  if (!sg_planeMasks.length) {
+    lines.push('  /* no plane masks defined yet — draw one with "Edit plane masks" */');
+  } else {
+    sg_planeMasks.forEach(function(mask, mi) {
+      // Skip masks with fewer than 3 points (degenerate polygons that
+      // wouldn't render anyway).
+      if (!mask || !mask.points || mask.points.length < 3) return;
+      var rows = mask.points.map(function(p) {
+        return '{ xN: ' + (+p.xN).toFixed(3) + ', yN: ' + (+p.yN).toFixed(3) + ' }';
+      }).join(', ');
+      var comma = (mi < sg_planeMasks.length - 1) ? ',' : '';
+      lines.push('  { points: [ ' + rows + ' ] }' + comma + '  // M' + (mi + 1));
+    });
+  }
+  lines.push('];');
+
   return lines.join('\n');
 }
 
@@ -7148,6 +7389,137 @@ var SG_LASER_SHAPES = {
   12: { pts: [ { xN: -0.500, dyN: 0.000, visibleAfter: false }, { xN: -0.130, dyN: -0.003, visibleAfter: true }, { xN: 0.500, dyN: 0.000, visibleAfter: true } ] },  // dashboard → windshield
   13: { pts: [ { xN: -0.500, dyN: 0.000, visibleAfter: false }, { xN: -0.152, dyN: -0.004, visibleAfter: true }, { xN: 0.500, dyN: 0.000, visibleAfter: true } ] }   // windshield
 };
+
+// Hardcoded plane-mask defaults baked into this build. Each entry is a
+// closed polygon (≥ 3 points) describing a region of the scoring field
+// where the cockpit plane fill must NOT be drawn — used to "hide" the
+// plane behind dashboard elements (steering wheel, instrument cluster,
+// …) for the perspective illusion. Coordinates are scoring-field
+// normalised:
+//   xN ∈ [-0.5, +0.5]  measured from the centre column (vC), scaled to
+//                      half the field width (vR-vL)/2.
+//   yN ∈ [0, 1]        measured from the top of the scoring field (sT)
+//                      to the bottom (sB).
+// Paste the SG_PLANE_MASKS block emitted by "Copy distance mapping"
+// into this literal to ship the user's mask set as the new defaults.
+var SG_PLANE_MASKS = [
+  // example:
+  // { points: [
+  //   { xN: -0.18, yN: 0.55 },
+  //   { xN:  0.18, yN: 0.55 },
+  //   { xN:  0.10, yN: 0.78 },
+  //   { xN: -0.10, yN: 0.78 }
+  // ] }
+];
+
+// Per-script runtime state; defaults are cloned in by
+// sg_resetPlaneMasksFromDefault() at script load and then again from
+// project JSON in sg_loadFromData. Each mask is { points: [{xN,yN}…] }.
+var sg_planeMasks = [];
+// Index into sg_planeMasks of the polygon currently being grown by
+// taps. Newly-created masks set this to their index so the next tap
+// extends them; null means a new tap on empty canvas should create a
+// fresh mask.
+var sg_planeMaskActive = null;
+// Currently-selected mask point (or null). Selecting surfaces an on-
+// canvas action panel anchored next to the point with Remove/Delete
+// mask/Close buttons — same pattern as the laser-shape selection.
+//   { mask: <index>, idx: <pointIndex> }
+var sg_planeMaskSelected = null;
+// Drag state for a mask-point pickup.
+//   { mask, idx, startX, startY, moved }
+var sg_planeMaskDragPt = null;
+// Mask-editor switch (dropdown checkbox "Edit plane masks"). When ON
+// taps on the canvas drive the mask drawing UI; the laser-shape editor
+// is disabled to keep the two interactions from fighting over the same
+// gestures.
+var sg_planeMaskEditMode = false;
+// Action-panel hit boxes for the selected mask point — refreshed every
+// frame the panel is drawn.
+var _sg_plane_mask_panel = null;
+// Pixel hit radius for picking a mask waypoint.
+var SG_PLANE_MASK_HIT_PX = 12;
+
+function sg_clonePlaneMasks(src) {
+  if (!Array.isArray(src)) return [];
+  var out = [];
+  for (var i = 0; i < src.length; i++) {
+    var m = src[i];
+    if (!m || !Array.isArray(m.points)) continue;
+    var pts = [];
+    for (var j = 0; j < m.points.length; j++) {
+      var p = m.points[j];
+      if (p == null) continue;
+      var xN = +p.xN;
+      var yN = +p.yN;
+      if (!isFinite(xN) || !isFinite(yN)) continue;
+      pts.push({
+        xN: Math.max(-0.5, Math.min(0.5, xN)),
+        yN: Math.max(0, Math.min(1, yN))
+      });
+    }
+    if (pts.length >= 1) out.push({ points: pts });
+  }
+  return out;
+}
+
+function sg_resetPlaneMasksFromDefault() {
+  sg_planeMasks = sg_clonePlaneMasks(SG_PLANE_MASKS);
+  sg_planeMaskActive = null;
+  sg_planeMaskSelected = null;
+  sg_planeMaskDragPt = null;
+}
+sg_resetPlaneMasksFromDefault();
+
+// Convert a stored mask polygon (xN/yN normalised) to canvas-pixel
+// points using the current scoring-field bounds. Returns null when
+// the mask has fewer than 3 points so callers can skip rendering.
+function sg_maskScreenPoints(mask, vL, vR, sT, sB) {
+  if (!mask || !Array.isArray(mask.points) || mask.points.length < 1) return null;
+  var vC = (vL + vR) / 2;
+  var halfW = (vR - vL) / 2;
+  var sH = sB - sT;
+  return mask.points.map(function(p) {
+    return {
+      x: vC + p.xN * (halfW * 2),  // xN spans the full field width
+      y: sT + p.yN * sH
+    };
+  });
+}
+
+// Hit-test mask waypoints (across all masks). Returns
+// {mask:<idx>, idx:<pointIdx>} or null.
+function sg_planeMaskWaypointHit(p, vL, vR, sT, sB) {
+  if (!sg_planeMasks || !sg_planeMasks.length) return null;
+  var d = window.devicePixelRatio || 1;
+  var hit = SG_PLANE_MASK_HIT_PX * d;
+  for (var i = sg_planeMasks.length - 1; i >= 0; i--) {
+    var pts = sg_maskScreenPoints(sg_planeMasks[i], vL, vR, sT, sB);
+    if (!pts) continue;
+    for (var j = pts.length - 1; j >= 0; j--) {
+      var px = pts[j].x, py = pts[j].y;
+      if (Math.abs(p.x - px) <= hit && Math.abs(p.y - py) <= hit) {
+        return { mask: i, idx: j };
+      }
+    }
+  }
+  return null;
+}
+
+// Convert a canvas pointer to scoring-field normalised mask coords.
+function sg_canvasToMaskN(p, vL, vR, sT, sB) {
+  var vC = (vL + vR) / 2;
+  var halfW = (vR - vL) / 2;
+  var sH = sB - sT;
+  if (halfW <= 0 || sH <= 0) return null;
+  var xN = (p.x - vC) / (halfW * 2);
+  var yN = (p.y - sT) / sH;
+  return {
+    xN: Math.max(-0.5, Math.min(0.5, xN)),
+    yN: Math.max(0, Math.min(1, yN))
+  };
+}
+
 // Per-score shapes; populated lazily from SG_LASER_SHAPES on first lookup
 // (so the snapshot dumped by "Copy distance mapping" stays lean and
 // makes it obvious which scores diverge from the straight default).
@@ -7363,62 +7735,23 @@ function sg_laserVisibleXRuns(screenPts, shapePts) {
   return runs;
 }
 
-// Fill a single strip between two laser curves (top + bot) respecting
-// the visibleAfter flag on each. The strip polygon is built once
-// (top curve forward + lateral connector + bottom curve reversed +
-// closepath) and then drawn once per (topRun × botRun) x-overlap with
-// a clipping rectangle, so hidden segments on either curve carve a
-// vertical "missing column" through the fill.
-function sg_fillCockpitStrip(ctx, vL, vR, vC, sT, sB, sH, horizonY, travel, topScore, botScore) {
-  var top = sg_resolveLaserAtScore(topScore, vL, vR, vC, sT, sH, horizonY, travel);
-  var bot = sg_resolveLaserAtScore(botScore, vL, vR, vC, sT, sH, horizonY, travel);
-  if (!top || !bot) return;
-  var topRuns = sg_laserVisibleXRuns(top.screenPts, top.shapePts);
-  var botRuns = sg_laserVisibleXRuns(bot.screenPts, bot.shapePts);
-  if (!topRuns.length || !botRuns.length) return;
-  // Clip-and-fill once per overlap. We don't merge runs because an
-  // adjacent overlap might come from a different (topRun, botRun) pair
-  // — drawing them separately keeps the math trivial.
-  var clipBottomY = sB + 200;   // generous bleed past sB for low scores
-  for (var t = 0; t < topRuns.length; t++) {
-    for (var b = 0; b < botRuns.length; b++) {
-      var xL = Math.max(topRuns[t].xL, botRuns[b].xL);
-      var xR = Math.min(topRuns[t].xR, botRuns[b].xR);
-      if (xR <= xL) continue;
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(xL, sT, xR - xL, clipBottomY - sT);
-      ctx.clip();
-      ctx.beginPath();
-      ctx.moveTo(top.screenPts[0].x, top.screenPts[0].y);
-      sg_appendLaserCurvePath(ctx, top.screenPts, false);
-      ctx.lineTo(bot.screenPts[bot.screenPts.length - 1].x,
-                 bot.screenPts[bot.screenPts.length - 1].y);
-      sg_appendLaserCurvePath(ctx, bot.screenPts, true);
-      ctx.closePath();
-      ctx.fillStyle = 'rgba(0,229,204,0.12)';
-      ctx.fill();
-      ctx.restore();
-    }
-  }
-}
-
-// Draw the cockpit plane as the UNION of the strips between every
-// consecutive score from the anchor (score 12) toward the marker. So
-// when the marker sits on score 9 the plane is the join of four
-// strips — 12↔11, 11↔10, 10↔9 — each filled independently. This
-// preserves every per-score perspective transition (the L of each
-// laser steps in/out at the score boundaries) instead of collapsing
-// them into a single big quadrilateral.
+// Draw the cockpit plane as a single quadrilateral whose edges are
+// the laser curve at score 12 (the windshield/dashboard joint) and
+// the laser curve at the score the marker is currently on. The plane
+// "grows" out of score 12 in the direction of the marker — upward
+// toward 15 (the windshield) when the marker climbs from 12, downward
+// toward 1 (the listener) when it drops below. Filled with a vertical
+// teal gradient denser near the score-12 anchor and faded toward the
+// marker edge so the plane reads as a continuous surface emanating
+// from the windshield base.
 //
-// Each strip is painted by sg_fillCockpitStrip, which respects the
-// visibleAfter flag on both bounding curves so hidden segments carve
-// vertical "missing columns" through the fill — the plane stays
-// invisible behind dashboard elements (e.g. the steering wheel) just
-// like the laser line itself does.
+// Plane masks (sg_planeMasks) carve holes in the fill via even-odd
+// clipping — they're how the user "hides" the plane behind dashboard
+// elements (steering wheel, instrument cluster, …) for the perspective
+// illusion. The lateral diagonals that close the polygon are never
+// stroked: only the gradient fill is visible.
 //
-// Suppressed when the marker sits exactly on score 12 (no strips to
-// draw).
+// Suppressed when the marker sits exactly on score 12.
 function sg_drawWindshieldPlane(ctx, W, H, vL, vR, vC, sT, sB, d, horizonY, travel, currentYN) {
   if (currentYN == null) return;
   var sH = sB - sT;
@@ -7429,31 +7762,179 @@ function sg_drawWindshieldPlane(ctx, W, H, vL, vR, vC, sT, sB, d, horizonY, trav
   if (Math.abs(deltaYN) < 0.005) return;
   var markerScore = sg_yToDistanceScore(currentYN);
   if (markerScore == null) return;
+  // anchor sits on the TOP edge when the marker is below 12, BOTTOM
+  // edge otherwise. Gradient flips direction so the dense end always
+  // hugs score 12.
+  var anchorIsTop = (deltaYN > 0);
+  var topScore    = anchorIsTop ? anchorScore : markerScore;
+  var bottomScore = anchorIsTop ? markerScore : anchorScore;
+  var top = sg_resolveLaserAtScore(topScore,    vL, vR, vC, sT, sH, horizonY, travel);
+  var bot = sg_resolveLaserAtScore(bottomScore, vL, vR, vC, sT, sH, horizonY, travel);
+  if (!top || !bot) return;
 
-  // Build the ordered list of scores from anchor to marker (inclusive).
-  // Marker above 12 → ascending; below 12 → descending.
-  var scoreList = [];
-  if (markerScore > anchorScore) {
-    for (var sc = anchorScore; sc <= markerScore; sc++) scoreList.push(sc);
+  ctx.save();
+  // Clip to scoring field (with a generous bottom bleed for low scores)
+  // first, then knock the user-defined masks out of that clip via
+  // even-odd: any point inside a mask polygon falls into an "even"
+  // count zone and the fill skips it.
+  ctx.beginPath();
+  ctx.rect(vL, sT, vR - vL, H - sT);
+  if (sg_planeMasks && sg_planeMasks.length) {
+    for (var mi = 0; mi < sg_planeMasks.length; mi++) {
+      var mPts = sg_maskScreenPoints(sg_planeMasks[mi], vL, vR, sT, sB);
+      if (!mPts || mPts.length < 3) continue;
+      ctx.moveTo(mPts[0].x, mPts[0].y);
+      for (var pj = 1; pj < mPts.length; pj++) ctx.lineTo(mPts[pj].x, mPts[pj].y);
+      ctx.closePath();
+    }
+  }
+  ctx.clip('evenodd');
+
+  ctx.beginPath();
+  ctx.moveTo(top.screenPts[0].x, top.screenPts[0].y);
+  sg_appendLaserCurvePath(ctx, top.screenPts, false);
+  ctx.lineTo(bot.screenPts[bot.screenPts.length - 1].x,
+             bot.screenPts[bot.screenPts.length - 1].y);
+  sg_appendLaserCurvePath(ctx, bot.screenPts, true);
+  ctx.closePath();
+
+  var grad = ctx.createLinearGradient(0, top.lineY, 0, bot.lineY);
+  if (anchorIsTop) {
+    grad.addColorStop(0,    'rgba(0,229,204,0.18)');
+    grad.addColorStop(0.5,  'rgba(0,229,204,0.10)');
+    grad.addColorStop(1,    'rgba(0,229,204,0.05)');
   } else {
-    for (var sc = anchorScore; sc >= markerScore; sc--) scoreList.push(sc);
+    grad.addColorStop(0,    'rgba(0,229,204,0.05)');
+    grad.addColorStop(0.5,  'rgba(0,229,204,0.10)');
+    grad.addColorStop(1,    'rgba(0,229,204,0.18)');
   }
-  if (scoreList.length < 2) return;
+  ctx.fillStyle = grad;
+  ctx.fill();
+  ctx.restore();
+}
 
-  // For each consecutive pair, paint a strip between them. The "top"
-  // and "bottom" scores are determined by yN (lower yN = higher on
-  // screen) so the polygon orientation stays correct in either
-  // direction of travel.
-  for (var i = 0; i < scoreList.length - 1; i++) {
-    var scA = scoreList[i];
-    var scB = scoreList[i + 1];
-    var yA = SG_DISTANCE_SCORE_YN[scA];
-    var yB = SG_DISTANCE_SCORE_YN[scB];
-    if (yA == null || yB == null) continue;
-    var topScore = (yA < yB) ? scA : scB;
-    var botScore = (yA < yB) ? scB : scA;
-    sg_fillCockpitStrip(ctx, vL, vR, vC, sT, sB, sH, horizonY, travel, topScore, botScore);
+// Render the plane-mask editor overlay: outlined polygons (dashed
+// for in-progress masks with < 3 points), waypoint dots, the
+// "selected" highlight, the action panel, and a help banner.
+// Coordinates come from sg_maskScreenPoints so masks track the
+// current canvas size.
+function sg_drawPlaneMaskOverlay(ctx, W, H, vL, vR, vC, sT, sB, d) {
+  _sg_plane_mask_panel = null;
+  ctx.save();
+
+  // Help banner
+  ctx.font = 'bold ' + (9*d) + 'px JetBrains Mono,monospace';
+  ctx.fillStyle = 'rgba(255,200,80,.85)';
+  ctx.textAlign = 'center';
+  ctx.fillText('PLANE MASKS — tap canvas to add point · drag handles · tap point for menu',
+    vC, sT + 14*d);
+
+  // Iterate every mask: dashed/closed outline + waypoint dots
+  for (var mi = 0; mi < sg_planeMasks.length; mi++) {
+    var mask = sg_planeMasks[mi];
+    var pts = sg_maskScreenPoints(mask, vL, vR, sT, sB);
+    if (!pts || !pts.length) continue;
+    var isActive = (mi === sg_planeMaskActive);
+    var canFill  = pts.length >= 3;
+    // Polygon outline
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (var pi = 1; pi < pts.length; pi++) ctx.lineTo(pts[pi].x, pts[pi].y);
+    if (canFill) ctx.closePath();
+    if (canFill) {
+      ctx.fillStyle = 'rgba(255,80,80,.10)';
+      ctx.fill();
+    }
+    ctx.lineWidth = (isActive ? 1.6 : 1.2) * d;
+    ctx.setLineDash(canFill ? [] : [5*d, 5*d]);
+    ctx.strokeStyle = isActive ? 'rgba(255,200,80,.95)' : 'rgba(255,140,80,.7)';
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Waypoint dots
+    var hitR = 5 * d;
+    for (var pi2 = 0; pi2 < pts.length; pi2++) {
+      var pt = pts[pi2];
+      var isSelected = (sg_planeMaskSelected
+                       && sg_planeMaskSelected.mask === mi
+                       && sg_planeMaskSelected.idx === pi2);
+      if (isSelected) {
+        ctx.fillStyle = 'rgba(255,220,120,.18)';
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, hitR + 5*d, 0, Math.PI*2);
+        ctx.fill();
+      }
+      ctx.fillStyle = isSelected ? 'rgba(255,220,120,.95)' : 'rgba(255,160,90,.95)';
+      ctx.strokeStyle = 'rgba(0,0,0,.85)';
+      ctx.lineWidth = 1.2 * d;
+      ctx.beginPath();
+      ctx.arc(pt.x, pt.y, hitR, 0, Math.PI*2);
+      ctx.fill(); ctx.stroke();
+    }
+
+    // Mask index badge near the first point so the user can tell
+    // adjacent polygons apart.
+    if (pts.length) {
+      ctx.font = 'bold ' + (9*d) + 'px JetBrains Mono,monospace';
+      ctx.fillStyle = isActive ? 'rgba(255,220,120,.95)' : 'rgba(255,180,80,.7)';
+      ctx.textAlign = 'left';
+      ctx.fillText('M' + (mi + 1), pts[0].x + 8*d, pts[0].y - 8*d);
+    }
   }
+
+  // Action panel for the selected waypoint
+  if (sg_planeMaskSelected) {
+    var sm = sg_planeMaskSelected.mask;
+    var si = sg_planeMaskSelected.idx;
+    var selMask = sg_planeMasks[sm];
+    if (selMask && selMask.points[si]) {
+      var selPts = sg_maskScreenPoints(selMask, vL, vR, sT, sB);
+      var selPx  = selPts[si];
+      var btnH = 26*d, gap = 6*d, padX = 9*d;
+      ctx.font = 'bold ' + (10*d) + 'px JetBrains Mono,monospace';
+      var canRemove = selMask.points.length > 1;
+      var lblRemove = '🗑 Remove';
+      var lblDelete = '✖ Delete mask';
+      var lblClose  = '✕ Close';
+      var wRemove = ctx.measureText(lblRemove).width + padX*2;
+      var wDelete = ctx.measureText(lblDelete).width + padX*2;
+      var wClose  = ctx.measureText(lblClose).width  + padX*2;
+      var totalW  = wRemove + gap + wDelete + gap + wClose;
+      var panelY  = selPx.y - btnH - 12*d;
+      if (panelY < sT + 4*d) panelY = selPx.y + 12*d;
+      var panelX  = selPx.x - totalW / 2;
+      if (panelX < vL + 4*d) panelX = vL + 4*d;
+      if (panelX + totalW > vR - 4*d) panelX = vR - 4*d - totalW;
+
+      function drawMaskBtn(label, x, w, enabled) {
+        ctx.fillStyle = enabled ? 'rgba(0,0,0,.85)' : 'rgba(0,0,0,.55)';
+        ctx.strokeStyle = enabled ? 'rgba(255,200,80,.7)' : 'rgba(255,255,255,.18)';
+        ctx.lineWidth = 1*d;
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(x, panelY, w, btnH, 6*d);
+        else ctx.rect(x, panelY, w, btnH);
+        ctx.fill(); ctx.stroke();
+        ctx.fillStyle = enabled ? 'rgba(255,220,120,1)' : 'rgba(255,255,255,.35)';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(label, x + w/2, panelY + btnH/2);
+        ctx.textBaseline = 'alphabetic';
+      }
+      var xR = panelX;
+      drawMaskBtn(lblRemove, xR, wRemove, canRemove);
+      var xD = xR + wRemove + gap;
+      drawMaskBtn(lblDelete, xD, wDelete, true);
+      var xC = xD + wDelete + gap;
+      drawMaskBtn(lblClose,  xC, wClose,  true);
+      _sg_plane_mask_panel = {
+        remove:     { x: xR, y: panelY, w: wRemove, h: btnH, enabled: canRemove },
+        deleteMask: { x: xD, y: panelY, w: wDelete, h: btnH, enabled: true },
+        close:      { x: xC, y: panelY, w: wClose,  h: btnH, enabled: true }
+      };
+    }
+  }
+
+  ctx.restore();
 }
 
 // Width-zone editing: when true the vertical zone lines become draggable.
@@ -7736,6 +8217,14 @@ function sg_drawFrame(t) {
   // Distance marker (drawn last so it sits on top)
   if (sg_state.toolMode === 'distance' && (sg_state.distanceY != null || sg_state.distanceNoSound)) {
     sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d);
+  }
+  // Plane-mask editor overlay (outlines + waypoints + action panel).
+  // Rendered last so it lands on top of the marker/laser/plane while
+  // the user is sculpting a polygon. Suppressed outside Distance mode
+  // and outside edit mode — the masks then survive as invisible carves
+  // through the cockpit plane fill only.
+  if (sg_state.toolMode === 'distance' && sg_planeMaskEditMode) {
+    sg_drawPlaneMaskOverlay(ctx, W, H, vL, vR, vC, sT, sB, d);
   }
 }
 
