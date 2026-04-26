@@ -6215,12 +6215,17 @@ function sg_loadFromData(data, fileName) {
       if (!src || !Array.isArray(src.pts) || src.pts.length < 2) return;
       var pts = src.pts.map(function(p, i){
         var fixed = (i === 0) || (i === src.pts.length - 1);
-        return {
+        var out = {
           xN:   Math.max(-0.5, Math.min(0.5, +p.xN)),
-          dyN:  Math.max(-0.5, Math.min(0.5, +(p.dyN || 0))),
           visibleAfter: p.visibleAfter !== false,
           fixed: fixed
         };
+        if (isFinite(+p.dyImg)) {
+          out.dyImg = Math.max(-0.5, Math.min(0.5, +p.dyImg));
+        } else {
+          out.dyN = Math.max(-0.5, Math.min(0.5, +(p.dyN || 0)));
+        }
+        return out;
       });
       // Force the two endpoints back to ±0.5 (defensive: a hand-edited
       // file might drift slightly).
@@ -6676,9 +6681,20 @@ function sg_onPD(e) {
               var shape2 = sg_getLaserShape(curScore, true);
               var idx = sg_laserInsertWaypoint(shape2, xN);
               if (idx > 0) {
-                // Snap dyN to the press Y so the new point lands under the finger
-                var dyN = (p.y - line.y) / line.sH;
-                shape2.pts[idx].dyN = Math.max(-0.5, Math.min(0.5, dyN));
+                // Snap the new point's deviation to the press Y; prefer
+                // image-relative storage when the dashboard rect is
+                // available so it stays glued to the cockpit drawing.
+                var iwDashRect = (line.vC != null && line.sT != null && line.sB != null)
+                  ? sg_dashboardImageRect(line.vC, line.sT, line.sB)
+                  : null;
+                var iwDev = sg_laserCanvasYToDeviation(p.y, line.y, line.sH, iwDashRect);
+                if (isFinite(+iwDev.dyImg)) {
+                  shape2.pts[idx].dyImg = Math.max(-0.5, Math.min(0.5, +iwDev.dyImg));
+                  delete shape2.pts[idx].dyN;
+                } else {
+                  shape2.pts[idx].dyN = Math.max(-0.5, Math.min(0.5, +iwDev.dyN));
+                  delete shape2.pts[idx].dyImg;
+                }
                 sg_laserSelected = { score: curScore, idx: idx };
                 var prev2 = shape2.pts[idx - 1];
                 var next2 = shape2.pts[idx + 1];
@@ -6797,9 +6813,17 @@ function sg_onPM(e) {
               xN = Math.max(sg_laserDragWp.minXN, Math.min(sg_laserDragWp.maxXN, xN));
               pt.xN = xN;
             }
-            var dyN = (p.y - line.y) / line.sH;
-            dyN = Math.max(-0.5, Math.min(0.5, dyN));
-            pt.dyN = dyN;
+            var dragDashRect = (line.vC != null && line.sT != null && line.sB != null)
+              ? sg_dashboardImageRect(line.vC, line.sT, line.sB)
+              : null;
+            var dragDev = sg_laserCanvasYToDeviation(p.y, line.y, line.sH, dragDashRect);
+            if (isFinite(+dragDev.dyImg)) {
+              pt.dyImg = Math.max(-0.5, Math.min(0.5, +dragDev.dyImg));
+              delete pt.dyN;
+            } else {
+              pt.dyN = Math.max(-0.5, Math.min(0.5, +dragDev.dyN));
+              delete pt.dyImg;
+            }
             sg_drawFrame(sg_curT);
           }
         }
@@ -7262,8 +7286,10 @@ function sg_distanceMappingToString() {
       var s = sg_laserShapes[sc] || sg_cloneLaserShape(SG_LASER_SHAPES[sc]);
       if (!s) return;
       var rows = s.pts.map(function(p){
-        return '{ xN: ' + p.xN.toFixed(3) +
-               ', dyN: ' + (p.dyN || 0).toFixed(3) +
+        var dev = isFinite(+p.dyImg)
+          ? ', dyImg: ' + (+p.dyImg).toFixed(3)
+          : ', dyN: ' + (+(p.dyN || 0)).toFixed(3);
+        return '{ xN: ' + p.xN.toFixed(3) + dev +
                ', visibleAfter: ' + (p.visibleAfter !== false) + ' }';
       }).join(', ');
       var lbl = SG_DISTANCE_LABELS[sc] ? '  // ' + SG_DISTANCE_LABELS[sc] : '';
@@ -7603,17 +7629,66 @@ function sg_maskAssignPointFromCoord(p, coord) {
 // (so the snapshot dumped by "Copy distance mapping" stays lean and
 // makes it obvious which scores diverge from the straight default).
 var sg_laserShapes = {};
+// Compute the canvas-y for a laser-shape point. The y deviation is
+// stored in image-relative units (dyImg, fraction of dashboard PNG
+// height) so the curve sits on the same cockpit feature at any zoom.
+// Legacy points carrying dyN (fraction of scoring-field height) are
+// migrated in place the first time the dashboard rect is known.
+function sg_laserPointCanvasY(pt, lineY, sH, dashRect) {
+  if (!pt) return lineY;
+  if (isFinite(+pt.dyImg)) {
+    if (dashRect && dashRect.drawH > 0) return lineY + pt.dyImg * dashRect.drawH;
+    return lineY + pt.dyImg * (2.5 * sH);   // fallback when image not loaded
+  }
+  if (isFinite(+pt.dyN)) {
+    if (dashRect && dashRect.drawH > 0) {
+      pt.dyImg = pt.dyN * sH / dashRect.drawH;
+      delete pt.dyN;
+      return lineY + pt.dyImg * dashRect.drawH;
+    }
+    return lineY + pt.dyN * sH;
+  }
+  return lineY;
+}
+// Inverse: convert a canvas-y press to the storage units used by the
+// laser shape, with the dashboard rect available (preferred) or falling
+// back to the legacy scoring-field-relative dyN.
+function sg_laserCanvasYToDeviation(canvasY, lineY, sH, dashRect) {
+  if (dashRect && dashRect.drawH > 0) {
+    return { dyImg: (canvasY - lineY) / dashRect.drawH };
+  }
+  return { dyN: (canvasY - lineY) / sH };
+}
+function sg_assignLaserDeviation(pt, dev) {
+  if (!pt || !dev) return;
+  if (isFinite(+dev.dyImg)) {
+    pt.dyImg = +dev.dyImg;
+    delete pt.dyN;
+  } else if (isFinite(+dev.dyN)) {
+    pt.dyN = +dev.dyN;
+    delete pt.dyImg;
+  }
+}
 // Deep-clone a shape and force the endpoints back to ±0.5 with fixed:true
 // so a tampered defaults block can't break the renderer's invariants.
 function sg_cloneLaserShape(src) {
   if (!src || !Array.isArray(src.pts) || src.pts.length < 2) return null;
   var pts = src.pts.map(function(p, i) {
-    return {
+    var out = {
       xN:  Math.max(-0.5, Math.min(0.5, +p.xN)),
-      dyN: Math.max(-0.5, Math.min(0.5, +(p.dyN || 0))),
       visibleAfter: p.visibleAfter !== false,
       fixed: false
     };
+    // Preserve image-relative deviation if present (preferred), else
+    // copy legacy scoring-field deviation; sg_laserPointCanvasY will
+    // migrate dyN→dyImg on first render once the dashboard rect is
+    // known so old data keeps rendering.
+    if (isFinite(+p.dyImg)) {
+      out.dyImg = Math.max(-0.5, Math.min(0.5, +p.dyImg));
+    } else {
+      out.dyN = Math.max(-0.5, Math.min(0.5, +(p.dyN || 0)));
+    }
+    return out;
   });
   pts[0].xN = -0.5; pts[0].fixed = true;
   pts[pts.length - 1].xN = +0.5; pts[pts.length - 1].fixed = true;
@@ -7666,8 +7741,21 @@ function sg_laserInsertWaypoint(shape, xN) {
     var a = pts[i], b = pts[i + 1];
     if (xN > a.xN && xN < b.xN) {
       var k = (xN - a.xN) / (b.xN - a.xN);
-      var dyN = a.dyN + (b.dyN - a.dyN) * k;
-      var newPt = { xN: xN, dyN: dyN, visibleAfter: a.visibleAfter !== false, fixed: false };
+      var newPt = { xN: xN, visibleAfter: a.visibleAfter !== false, fixed: false };
+      // Linearly interpolate the deviation in whichever storage format
+      // the neighbours use. If both are migrated (dyImg) keep the new
+      // point in image-relative units; otherwise fall back to dyN.
+      if (isFinite(+a.dyImg) && isFinite(+b.dyImg)) {
+        newPt.dyImg = a.dyImg + (b.dyImg - a.dyImg) * k;
+      } else if (isFinite(+a.dyN) && isFinite(+b.dyN)) {
+        newPt.dyN = a.dyN + (b.dyN - a.dyN) * k;
+      } else {
+        // Mixed/missing — pick whichever side has data, scoped to dyN
+        // for backward compatibility (will migrate on first render).
+        var aDev = isFinite(+a.dyImg) ? a.dyImg * 2.5 : (+a.dyN || 0);
+        var bDev = isFinite(+b.dyImg) ? b.dyImg * 2.5 : (+b.dyN || 0);
+        newPt.dyN = aDev + (bDev - aDev) * k;
+      }
       pts.splice(i + 1, 0, newPt);
       return i + 1;
     }
@@ -7687,11 +7775,14 @@ function sg_laserWaypointHit(p, score) {
   var lineLen = line.xR - line.xL;
   if (lineLen <= 0) return null;
   var sH = line.sH != null ? line.sH : 1;
+  var hitDashRect = (line.vC != null && line.sT != null && line.sB != null)
+    ? sg_dashboardImageRect(line.vC, line.sT, line.sB)
+    : null;
   // Iterate from last to first so a draw-order-top point wins ties.
   for (var i = shape.pts.length - 1; i >= 0; i--) {
     var pt = shape.pts[i];
     var px = line.xL + (pt.xN + 0.5) * lineLen;
-    var py = line.y + pt.dyN * sH;
+    var py = sg_laserPointCanvasY(pt, line.y, sH, hitDashRect);
     if (Math.abs(p.x - px) <= hit && Math.abs(p.y - py) <= hit) {
       return { idx: i };
     }
@@ -7784,10 +7875,11 @@ function sg_resolveLaserAtScore(score, vL, vR, vC, sT, sH, horizonY, travel) {
     ];
   }
   var laserLen = planeR - planeL;
+  var dashRect = sg_dashboardImageRect(vC, sT, sT + sH);
   var screenPts = pts.map(function(pt) {
     return {
       x: planeL + (pt.xN + 0.5) * laserLen,
-      y: lineY + pt.dyN * sH
+      y: sg_laserPointCanvasY(pt, lineY, sH, dashRect)
     };
   });
   return { screenPts: screenPts, shapePts: pts, lineY: lineY, planeL: planeL, planeR: planeR };
@@ -8480,10 +8572,11 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
       ];
     }
     var laserLen = planeR - planeL;
+    var laserDashRect = sg_dashboardImageRect(vC, sT, sB);
     function laserPx(pt) {
       return {
         x: planeL + (pt.xN + 0.5) * laserLen,
-        y: lineY + pt.dyN * sH
+        y: sg_laserPointCanvasY(pt, lineY, sH, laserDashRect)
       };
     }
 
@@ -8644,6 +8737,7 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
       horizonY: horizonY, travel: travel,
       markerY: my,
       sH: sH,
+      vC: vC, sT: sT, sB: sB,
       score: score
     };
   }
