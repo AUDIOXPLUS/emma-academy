@@ -7342,30 +7342,37 @@ function sg_resolveLaserAtScore(score, vL, vR, vC, sT, sH, horizonY, travel) {
   return { screenPts: screenPts, lineY: lineY, planeL: planeL, planeR: planeR };
 }
 
-// Draw a translucent quadrilateral bounded by the laser curve of score
-// 12 (bottom — the windshield-base anchor) and the curve of the score
-// the marker is currently on (top — moves in real time as the user
-// steps from 12 up toward 15). The two curves are connected at their
-// endpoints with straight diagonals so the polygon closes around the
-// windshield region of the dashboard, simulating the glass plane that
-// those scores intersect. Filled with a vertical teal gradient so the
-// dashboard image stays visible underneath.
+// Draw a translucent quadrilateral anchored on one edge to the laser
+// curve of score 12 (the windshield/dashboard joint) and on the other
+// to the laser curve at the score the marker is currently on. The
+// plane "grows" out of score 12 in the direction of the marker —
+// upward toward 15 (the windshield) when the marker climbs from 12,
+// downward toward 1 (the listener) when the marker drops below 12.
+// The two curves are connected at their lateral endpoints with
+// straight diagonals so the polygon closes around the cockpit region
+// the scores describe, and filled with a vertical teal gradient that
+// is denser near the score-12 anchor and fades toward the marker edge
+// — the plane reads as a continuous surface emanating from the
+// windshield base.
 //
-// The plane is suppressed when the marker is at or below score 12
-// (the polygon would be degenerate or inverted) — i.e. it materialises
-// only as the user climbs from 12 toward 15.
+// Suppressed when the marker sits exactly on score 12 (the polygon
+// would be degenerate).
 function sg_drawWindshieldPlane(ctx, W, H, vL, vR, vC, sT, sB, d, horizonY, travel, currentYN) {
   if (currentYN == null) return;
   var sH = sB - sT;
-  var bottomScore = 12;
-  var bottomYN = SG_DISTANCE_SCORE_YN[bottomScore];
-  if (bottomYN == null) return;
-  // Only show when the marker sits ABOVE the windshield base (yN < 0.32).
-  // Add a small ε so a marker exactly on score 12 doesn't paint a
-  // zero-thickness sliver.
-  if (currentYN >= bottomYN - 0.005) return;
-  var topScore = sg_yToDistanceScore(currentYN);
-  if (topScore == null) return;
+  var anchorScore = 12;
+  var anchorYN = SG_DISTANCE_SCORE_YN[anchorScore];
+  if (anchorYN == null) return;
+  var deltaYN = currentYN - anchorYN;
+  // Marker exactly on the anchor → no plane (zero-thickness sliver).
+  if (Math.abs(deltaYN) < 0.005) return;
+  var markerScore = sg_yToDistanceScore(currentYN);
+  if (markerScore == null) return;
+  // anchor is the TOP edge when the marker is below 12 (deltaYN > 0);
+  // otherwise it's the BOTTOM edge.
+  var anchorIsTop = (deltaYN > 0);
+  var topScore = anchorIsTop ? anchorScore : markerScore;
+  var bottomScore = anchorIsTop ? markerScore : anchorScore;
   var top = sg_resolveLaserAtScore(topScore,    vL, vR, vC, sT, sH, horizonY, travel);
   var bot = sg_resolveLaserAtScore(bottomScore, vL, vR, vC, sT, sH, horizonY, travel);
   if (!top || !bot) return;
@@ -7387,12 +7394,19 @@ function sg_drawWindshieldPlane(ctx, W, H, vL, vR, vC, sT, sB, d, horizonY, trav
   sg_appendLaserCurvePath(ctx, bot.screenPts, true);
   ctx.closePath();
 
-  // Vertical gradient: stronger near score 15 (sky/over windshield),
-  // softer near score 12 (where the windshield meets the dashboard).
+  // Vertical gradient: denser near the score-12 anchor, fading toward
+  // the marker edge so the plane visibly emanates from the windshield
+  // base regardless of which direction the marker travels.
   var grad = ctx.createLinearGradient(0, top.lineY, 0, bot.lineY);
-  grad.addColorStop(0, 'rgba(0,229,204,0.18)');
-  grad.addColorStop(0.5, 'rgba(0,229,204,0.10)');
-  grad.addColorStop(1, 'rgba(0,229,204,0.05)');
+  if (anchorIsTop) {
+    grad.addColorStop(0,    'rgba(0,229,204,0.18)');
+    grad.addColorStop(0.5,  'rgba(0,229,204,0.10)');
+    grad.addColorStop(1,    'rgba(0,229,204,0.05)');
+  } else {
+    grad.addColorStop(0,    'rgba(0,229,204,0.05)');
+    grad.addColorStop(0.5,  'rgba(0,229,204,0.10)');
+    grad.addColorStop(1,    'rgba(0,229,204,0.18)');
+  }
   ctx.fillStyle = grad;
   ctx.fill();
 
