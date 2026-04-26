@@ -6216,10 +6216,14 @@ function sg_loadFromData(data, fileName) {
       var pts = src.pts.map(function(p, i){
         var fixed = (i === 0) || (i === src.pts.length - 1);
         var out = {
-          xN:   Math.max(-0.5, Math.min(0.5, +p.xN)),
           visibleAfter: p.visibleAfter !== false,
           fixed: fixed
         };
+        if (fixed || !isFinite(+p.xImg)) {
+          out.xN = Math.max(-0.5, Math.min(0.5, +p.xN));
+        } else {
+          out.xImg = +p.xImg;
+        }
         if (isFinite(+p.dyImg)) {
           out.dyImg = Math.max(-0.5, Math.min(0.5, +p.dyImg));
         } else {
@@ -6640,16 +6644,21 @@ function sg_onPD(e) {
         if (wp) {
           var shape = sg_getLaserShape(curScore, true);
           var pt = shape.pts[wp.idx];
+          var dwLine = _sg_distance_line || {};
+          var dwDashRect = (dwLine.vC != null && dwLine.sT != null && dwLine.sB != null)
+            ? sg_dashboardImageRect(dwLine.vC, dwLine.sT, dwLine.sB)
+            : null;
           var prev = shape.pts[wp.idx - 1];
           var next = shape.pts[wp.idx + 1];
           sg_laserDragWp = {
             score: curScore,
             idx: wp.idx,
             fixed: !!pt.fixed,
-            // Leave a small ε so neighbours never coincide and break the
-            // monotonic X assumption used by the renderer / hit-test.
-            minXN: prev ? prev.xN + 0.001 : -0.5,
-            maxXN: next ? next.xN - 0.001 : +0.5,
+            // Clamp in canvas-pixel space so the bounds don't depend on
+            // whether neighbours are stored as legacy xN or xImg. The
+            // 1-px ε keeps the polyline strictly monotonic.
+            minCanvasX: prev ? sg_laserPointCanvasX(prev, dwLine.xL, dwLine.xR, dwDashRect) + 1 : (dwLine.xL || 0),
+            maxCanvasX: next ? sg_laserPointCanvasX(next, dwLine.xL, dwLine.xR, dwDashRect) - 1 : (dwLine.xR || 0),
             startX: p.x, startY: p.y,
             moved: false
           };
@@ -6664,29 +6673,39 @@ function sg_onPD(e) {
           var line = _sg_distance_line;
           var laserLen = line.xR - line.xL;
           if (laserLen > 0) {
-            var xN = ((p.x - line.xL) / laserLen) - 0.5;
+            var iwDashRect = (line.vC != null && line.sT != null && line.sB != null)
+              ? sg_dashboardImageRect(line.vC, line.sT, line.sB)
+              : null;
             // Don't insert when the press is too close to an existing
             // waypoint — let the user grab that one instead. The hit
             // already handled exact-on-waypoint above; this guards near-
-            // misses when the user aimed at a point.
+            // misses when the user aimed at a point. Compare in canvas
+            // pixels so it works for both legacy (xN) and migrated
+            // (xImg) points without touching their storage format.
+            var hitPx = SG_LASER_WP_HIT_PX * (window.devicePixelRatio || 1);
             var nearExisting = false;
             var shapeNow = sg_getLaserShape(curScore, false);
             if (shapeNow) {
-              var dxLimit = (SG_LASER_WP_HIT_PX * (window.devicePixelRatio || 1)) / Math.max(1, laserLen);
               for (var ki = 0; ki < shapeNow.pts.length; ki++) {
-                if (Math.abs(shapeNow.pts[ki].xN - xN) < dxLimit) { nearExisting = true; break; }
+                var ekx = sg_laserPointCanvasX(shapeNow.pts[ki], line.xL, line.xR, iwDashRect);
+                if (Math.abs(p.x - ekx) < hitPx) { nearExisting = true; break; }
               }
             }
             if (!nearExisting) {
               var shape2 = sg_getLaserShape(curScore, true);
-              var idx = sg_laserInsertWaypoint(shape2, xN);
+              var idx = sg_laserInsertWaypointAtCanvasX(shape2, p.x, line.xL, line.xR, iwDashRect);
               if (idx > 0) {
-                // Snap the new point's deviation to the press Y; prefer
-                // image-relative storage when the dashboard rect is
-                // available so it stays glued to the cockpit drawing.
-                var iwDashRect = (line.vC != null && line.sT != null && line.sB != null)
-                  ? sg_dashboardImageRect(line.vC, line.sT, line.sB)
-                  : null;
+                // Snap the new point's coords to the click position;
+                // prefer image-relative storage when the dashboard rect
+                // is available so it stays glued to the cockpit drawing.
+                var iwXCoord = sg_laserCanvasXToCoord(p.x, line.xL, line.xR, iwDashRect);
+                if (isFinite(+iwXCoord.xImg)) {
+                  shape2.pts[idx].xImg = +iwXCoord.xImg;
+                  delete shape2.pts[idx].xN;
+                } else {
+                  shape2.pts[idx].xN = Math.max(-0.5, Math.min(0.5, +iwXCoord.xN));
+                  delete shape2.pts[idx].xImg;
+                }
                 var iwDev = sg_laserCanvasYToDeviation(p.y, line.y, line.sH, iwDashRect);
                 if (isFinite(+iwDev.dyImg)) {
                   shape2.pts[idx].dyImg = Math.max(-0.5, Math.min(0.5, +iwDev.dyImg));
@@ -6698,12 +6717,15 @@ function sg_onPD(e) {
                 sg_laserSelected = { score: curScore, idx: idx };
                 var prev2 = shape2.pts[idx - 1];
                 var next2 = shape2.pts[idx + 1];
+                // Drag clamp now lives in canvas-pixel space so it
+                // behaves identically whether neighbours are stored as
+                // xN (legacy) or xImg (image-anchored).
                 sg_laserDragWp = {
                   score: curScore,
                   idx: idx,
                   fixed: false,
-                  minXN: prev2 ? prev2.xN + 0.001 : -0.5,
-                  maxXN: next2 ? next2.xN - 0.001 : +0.5,
+                  minCanvasX: prev2 ? sg_laserPointCanvasX(prev2, line.xL, line.xR, iwDashRect) + 1 : line.xL,
+                  maxCanvasX: next2 ? sg_laserPointCanvasX(next2, line.xL, line.xR, iwDashRect) - 1 : line.xR,
                   startX: p.x, startY: p.y,
                   moved: true   // freshly placed → already "moved"
                 };
@@ -6805,17 +6827,24 @@ function sg_onPM(e) {
           var shape = sg_getLaserShape(sg_laserDragWp.score, true);
           var pt = shape.pts[sg_laserDragWp.idx];
           if (pt) {
-            // X (only for non-fixed points): clamped between the two
-            // neighbours captured at pickup. Y always tracks the pointer.
-            if (!sg_laserDragWp.fixed) {
-              var laserLen = line.xR - line.xL;
-              var xN = ((p.x - line.xL) / laserLen) - 0.5;
-              xN = Math.max(sg_laserDragWp.minXN, Math.min(sg_laserDragWp.maxXN, xN));
-              pt.xN = xN;
-            }
             var dragDashRect = (line.vC != null && line.sT != null && line.sB != null)
               ? sg_dashboardImageRect(line.vC, line.sT, line.sB)
               : null;
+            // X (only for non-fixed points): clamp the pointer to the
+            // neighbour-canvas-x bounds captured at pickup, then convert
+            // to image-anchored xImg (or legacy xN if image not loaded).
+            if (!sg_laserDragWp.fixed) {
+              var clampedX = Math.max(sg_laserDragWp.minCanvasX,
+                              Math.min(sg_laserDragWp.maxCanvasX, p.x));
+              var dragXCoord = sg_laserCanvasXToCoord(clampedX, line.xL, line.xR, dragDashRect);
+              if (isFinite(+dragXCoord.xImg)) {
+                pt.xImg = +dragXCoord.xImg;
+                delete pt.xN;
+              } else {
+                pt.xN = Math.max(-0.5, Math.min(0.5, +dragXCoord.xN));
+                delete pt.xImg;
+              }
+            }
             var dragDev = sg_laserCanvasYToDeviation(p.y, line.y, line.sH, dragDashRect);
             if (isFinite(+dragDev.dyImg)) {
               pt.dyImg = Math.max(-0.5, Math.min(0.5, +dragDev.dyImg));
@@ -7158,7 +7187,7 @@ var sg_distanceShowTLS = false;
 // surfaces a small on-canvas action panel with Remove / Toggle-segment
 // / Close buttons). The same gestures work with mouse.
 var sg_laserEditMode = false;
-// Drag state for a waypoint pickup: {score, idx, fixed, minXN, maxXN,
+// Drag state for a waypoint pickup: {score, idx, fixed, minCanvasX, maxCanvasX,
 // startX, startY, moved}. `moved` is flipped to true once the pointer
 // moves past the tap-vs-drag threshold so pointerup can distinguish
 // "tap to select" from "drag to reposition".
@@ -7286,10 +7315,13 @@ function sg_distanceMappingToString() {
       var s = sg_laserShapes[sc] || sg_cloneLaserShape(SG_LASER_SHAPES[sc]);
       if (!s) return;
       var rows = s.pts.map(function(p){
+        var xCoord = isFinite(+p.xImg)
+          ? 'xImg: ' + (+p.xImg).toFixed(3)
+          : 'xN: ' + (+p.xN).toFixed(3);
         var dev = isFinite(+p.dyImg)
           ? ', dyImg: ' + (+p.dyImg).toFixed(3)
           : ', dyN: ' + (+(p.dyN || 0)).toFixed(3);
-        return '{ xN: ' + p.xN.toFixed(3) + dev +
+        return '{ ' + xCoord + dev +
                ', visibleAfter: ' + (p.visibleAfter !== false) + ' }';
       }).join(', ');
       var lbl = SG_DISTANCE_LABELS[sc] ? '  // ' + SG_DISTANCE_LABELS[sc] : '';
@@ -7407,6 +7439,16 @@ function sg_defaultLaserShape() {
 // object literal to ship the user's calibration as new defaults — the
 // values are cloned into sg_laserShapes on first lookup so per-project
 // edits keep overriding them. Keep the structure {[score]: { pts: [...] }}.
+//
+// Each waypoint supports two coordinate formats per axis:
+//   x: { xImg } — fraction of dashboard PNG width  (PREFERRED, glued
+//                 to cockpit image at any zoom)
+//      { xN }   — fraction of laser visible length (LEGACY, drifts vs
+//                 image at zoom changes; auto-migrated on first render)
+//   y: { dyImg } — fraction of dashboard PNG height (PREFERRED)
+//      { dyN }   — fraction of scoring-field height (LEGACY)
+// Endpoints (first + last) MUST stay xN: ±0.5 — they anchor the laser's
+// visible bounds (lenFrac per score) which is NOT an image feature.
 var SG_LASER_SHAPES = {
   6: { pts: [ { xN: -0.500, dyN: -0.035, visibleAfter: true }, { xN: -0.425, dyN: -0.049, visibleAfter: true }, { xN: -0.376, dyN: -0.131, visibleAfter: true }, { xN: -0.328, dyN: -0.180, visibleAfter: true }, { xN: -0.269, dyN: -0.192, visibleAfter: true }, { xN: -0.214, dyN: -0.146, visibleAfter: true }, { xN: -0.167, dyN: -0.065, visibleAfter: true }, { xN: -0.131, dyN: -0.014, visibleAfter: true }, { xN: 0.011, dyN: -0.008, visibleAfter: true }, { xN: 0.500, dyN: 0.000, visibleAfter: true } ] },  // steering wheel
   7: { pts: [ { xN: -0.500, dyN: 0.000, visibleAfter: true }, { xN: -0.431, dyN: -0.001, visibleAfter: false }, { xN: -0.401, dyN: -0.000, visibleAfter: true }, { xN: -0.177, dyN: 0.002, visibleAfter: false }, { xN: -0.144, dyN: -0.002, visibleAfter: true }, { xN: 0.500, dyN: 0.000, visibleAfter: true } ] },  // wheel → dashboard
@@ -7669,20 +7711,79 @@ function sg_assignLaserDeviation(pt, dev) {
     delete pt.dyImg;
   }
 }
+// Compute the canvas-x for a laser-shape point. Endpoints (fixed) are
+// snapped to the laser's visible bounds (planeL/planeR) — they carry
+// the semantics of "start/end of visible beam" and must NOT track image
+// features (lenFrac per score sets that bound). All other points are
+// stored as xImg (fraction of dashboard PNG width) so they stay glued
+// to the cockpit drawing at any zoom. Legacy points carrying xN are
+// migrated in place once the dashboard rect is known.
+function sg_laserPointCanvasX(pt, planeL, planeR, dashRect) {
+  if (!pt) return planeL;
+  var laserLen = planeR - planeL;
+  if (pt.fixed) {
+    return (pt.xN <= 0) ? planeL : planeR;
+  }
+  if (isFinite(+pt.xImg)) {
+    if (dashRect && dashRect.drawW > 0) return dashRect.drawX + pt.xImg * dashRect.drawW;
+    return planeL + (pt.xImg) * laserLen;   // approximate fallback
+  }
+  if (isFinite(+pt.xN)) {
+    if (dashRect && dashRect.drawW > 0) {
+      var canvasX = planeL + (pt.xN + 0.5) * laserLen;
+      pt.xImg = (canvasX - dashRect.drawX) / dashRect.drawW;
+      delete pt.xN;
+      return dashRect.drawX + pt.xImg * dashRect.drawW;
+    }
+    return planeL + (pt.xN + 0.5) * laserLen;
+  }
+  return planeL + 0.5 * laserLen;
+}
+// Inverse: convert a canvas-x press to laser-shape storage units. With
+// the dashboard rect available emit xImg (preferred); fall back to xN
+// (laser-length-relative, [-0.5..+0.5]) when image not loaded yet.
+function sg_laserCanvasXToCoord(canvasX, planeL, planeR, dashRect) {
+  if (dashRect && dashRect.drawW > 0) {
+    return { xImg: (canvasX - dashRect.drawX) / dashRect.drawW };
+  }
+  var laserLen = planeR - planeL;
+  if (laserLen <= 0) return { xN: 0 };
+  return { xN: (canvasX - planeL) / laserLen - 0.5 };
+}
+// Resolve a point's xImg even if it's still stored as xN — used by the
+// drag clamp logic that needs to compare image-relative bounds against
+// neighbour points without mutating them.
+function sg_laserPointXImg(pt, planeL, planeR, dashRect) {
+  if (pt.fixed) {
+    if (!dashRect || dashRect.drawW <= 0) return pt.xN <= 0 ? -0.5 : 1.5;
+    var endX = (pt.xN <= 0) ? planeL : planeR;
+    return (endX - dashRect.drawX) / dashRect.drawW;
+  }
+  if (isFinite(+pt.xImg)) return +pt.xImg;
+  if (isFinite(+pt.xN) && dashRect && dashRect.drawW > 0) {
+    var cx = planeL + (pt.xN + 0.5) * (planeR - planeL);
+    return (cx - dashRect.drawX) / dashRect.drawW;
+  }
+  return 0.5;
+}
 // Deep-clone a shape and force the endpoints back to ±0.5 with fixed:true
 // so a tampered defaults block can't break the renderer's invariants.
 function sg_cloneLaserShape(src) {
   if (!src || !Array.isArray(src.pts) || src.pts.length < 2) return null;
   var pts = src.pts.map(function(p, i) {
     var out = {
-      xN:  Math.max(-0.5, Math.min(0.5, +p.xN)),
       visibleAfter: p.visibleAfter !== false,
       fixed: false
     };
-    // Preserve image-relative deviation if present (preferred), else
-    // copy legacy scoring-field deviation; sg_laserPointCanvasY will
-    // migrate dyN→dyImg on first render once the dashboard rect is
-    // known so old data keeps rendering.
+    // X: prefer image-relative xImg (new), fall back to laser-length
+    // xN (legacy); sg_laserPointCanvasX migrates xN→xImg on first
+    // render when the dashboard rect is known.
+    if (isFinite(+p.xImg)) {
+      out.xImg = +p.xImg;
+    } else {
+      out.xN = Math.max(-0.5, Math.min(0.5, +p.xN));
+    }
+    // Y: same dual-format support.
     if (isFinite(+p.dyImg)) {
       out.dyImg = Math.max(-0.5, Math.min(0.5, +p.dyImg));
     } else {
@@ -7690,8 +7791,11 @@ function sg_cloneLaserShape(src) {
     }
     return out;
   });
-  pts[0].xN = -0.5; pts[0].fixed = true;
-  pts[pts.length - 1].xN = +0.5; pts[pts.length - 1].fixed = true;
+  // Endpoints always stay anchored to the laser's visible bounds (NOT
+  // to image features) so lenFrac per score still controls how wide
+  // the beam is. Force xN = ±0.5 and strip any stored xImg.
+  pts[0].xN = -0.5; pts[0].fixed = true; delete pts[0].xImg;
+  pts[pts.length - 1].xN = +0.5; pts[pts.length - 1].fixed = true; delete pts[pts.length - 1].xImg;
   return { pts: pts };
 }
 function sg_getLaserShape(score, createIfMissing) {
@@ -7726,36 +7830,28 @@ function sg_laserShapeIsCustom(shape) {
   if (shape.pts.length !== 2) return true;
   for (var i = 0; i < shape.pts.length; i++) {
     var p = shape.pts[i];
-    if (p.dyN !== 0) return true;
+    if (isFinite(+p.dyN) && p.dyN !== 0) return true;
+    if (isFinite(+p.dyImg) && p.dyImg !== 0) return true;
     if (p.visibleAfter === false) return true;
   }
   return false;
 }
-// Insert a new waypoint at the given xN (clamped strictly between the
-// neighbours so the polyline stays monotonic in X). dyN is interpolated
-// from the existing shape so the visual line doesn't jump on insertion.
-function sg_laserInsertWaypoint(shape, xN) {
+// Insert a placeholder waypoint at the position in `shape.pts` that
+// matches the canvas-x click position. Returns the new index or -1
+// when the click falls outside the polyline. The returned point has
+// no x/y storage yet — the caller must set xImg/xN and dyImg/dyN.
+function sg_laserInsertWaypointAtCanvasX(shape, canvasX, planeL, planeR, dashRect) {
   if (!shape) return -1;
   var pts = shape.pts;
   for (var i = 0; i < pts.length - 1; i++) {
-    var a = pts[i], b = pts[i + 1];
-    if (xN > a.xN && xN < b.xN) {
-      var k = (xN - a.xN) / (b.xN - a.xN);
-      var newPt = { xN: xN, visibleAfter: a.visibleAfter !== false, fixed: false };
-      // Linearly interpolate the deviation in whichever storage format
-      // the neighbours use. If both are migrated (dyImg) keep the new
-      // point in image-relative units; otherwise fall back to dyN.
-      if (isFinite(+a.dyImg) && isFinite(+b.dyImg)) {
-        newPt.dyImg = a.dyImg + (b.dyImg - a.dyImg) * k;
-      } else if (isFinite(+a.dyN) && isFinite(+b.dyN)) {
-        newPt.dyN = a.dyN + (b.dyN - a.dyN) * k;
-      } else {
-        // Mixed/missing — pick whichever side has data, scoped to dyN
-        // for backward compatibility (will migrate on first render).
-        var aDev = isFinite(+a.dyImg) ? a.dyImg * 2.5 : (+a.dyN || 0);
-        var bDev = isFinite(+b.dyImg) ? b.dyImg * 2.5 : (+b.dyN || 0);
-        newPt.dyN = aDev + (bDev - aDev) * k;
-      }
+    var ax = sg_laserPointCanvasX(pts[i],     planeL, planeR, dashRect);
+    var bx = sg_laserPointCanvasX(pts[i + 1], planeL, planeR, dashRect);
+    var lo = Math.min(ax, bx), hi = Math.max(ax, bx);
+    if (canvasX > lo && canvasX < hi) {
+      var newPt = {
+        visibleAfter: pts[i].visibleAfter !== false,
+        fixed: false
+      };
       pts.splice(i + 1, 0, newPt);
       return i + 1;
     }
@@ -7781,7 +7877,7 @@ function sg_laserWaypointHit(p, score) {
   // Iterate from last to first so a draw-order-top point wins ties.
   for (var i = shape.pts.length - 1; i >= 0; i--) {
     var pt = shape.pts[i];
-    var px = line.xL + (pt.xN + 0.5) * lineLen;
+    var px = sg_laserPointCanvasX(pt, line.xL, line.xR, hitDashRect);
     var py = sg_laserPointCanvasY(pt, line.y, sH, hitDashRect);
     if (Math.abs(p.x - px) <= hit && Math.abs(p.y - py) <= hit) {
       return { idx: i };
@@ -7874,11 +7970,10 @@ function sg_resolveLaserAtScore(score, vL, vR, vC, sT, sH, horizonY, travel) {
       { xN: +0.5, dyN: 0, visibleAfter: true,  fixed: true }
     ];
   }
-  var laserLen = planeR - planeL;
   var dashRect = sg_dashboardImageRect(vC, sT, sT + sH);
   var screenPts = pts.map(function(pt) {
     return {
-      x: planeL + (pt.xN + 0.5) * laserLen,
+      x: sg_laserPointCanvasX(pt, planeL, planeR, dashRect),
       y: sg_laserPointCanvasY(pt, lineY, sH, dashRect)
     };
   });
@@ -8571,11 +8666,10 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
         { xN: +0.5, dyN: 0, visibleAfter: true,  fixed: true }
       ];
     }
-    var laserLen = planeR - planeL;
     var laserDashRect = sg_dashboardImageRect(vC, sT, sB);
     function laserPx(pt) {
       return {
-        x: planeL + (pt.xN + 0.5) * laserLen,
+        x: sg_laserPointCanvasX(pt, planeL, planeR, laserDashRect),
         y: sg_laserPointCanvasY(pt, lineY, sH, laserDashRect)
       };
     }
