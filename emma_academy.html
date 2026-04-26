@@ -7799,31 +7799,47 @@ function sg_drawWindshieldPlane(ctx, W, H, vL, vR, vC, sT, sB, d, horizonY, trav
   }
   ctx.clip('evenodd');
 
-  // Paint each strip with a uniform low alpha. Strips share their
-  // boundary curves but never overlap in area, so the resulting fill
-  // reads as one continuous translucent surface with the per-score L
-  // step preserved at the boundaries.
-  for (var i = 0; i < scoreList.length - 1; i++) {
-    var scA = scoreList[i];
-    var scB = scoreList[i + 1];
-    var yA = SG_DISTANCE_SCORE_YN[scA];
-    var yB = SG_DISTANCE_SCORE_YN[scB];
-    if (yA == null || yB == null) continue;
-    var topScore = (yA < yB) ? scA : scB;
-    var botScore = (yA < yB) ? scB : scA;
-    var top = sg_resolveLaserAtScore(topScore, vL, vR, vC, sT, sH, horizonY, travel);
-    var bot = sg_resolveLaserAtScore(botScore, vL, vR, vC, sT, sH, horizonY, travel);
-    if (!top || !bot) continue;
-    ctx.beginPath();
-    ctx.moveTo(top.screenPts[0].x, top.screenPts[0].y);
-    sg_appendLaserCurvePath(ctx, top.screenPts, false);
-    ctx.lineTo(bot.screenPts[bot.screenPts.length - 1].x,
-               bot.screenPts[bot.screenPts.length - 1].y);
-    sg_appendLaserCurvePath(ctx, bot.screenPts, true);
-    ctx.closePath();
-    ctx.fillStyle = 'rgba(0,229,204,0.10)';
-    ctx.fill();
+  // Resolve every score in the chain in screen-space order (topmost
+  // first, bottommost last). The chain spans the same scores as
+  // before — the per-score L step is preserved as a stair-step on
+  // the lateral edges of the union polygon below.
+  var orderedScores = scoreList.slice().sort(function(a, b) {
+    return SG_DISTANCE_SCORE_YN[a] - SG_DISTANCE_SCORE_YN[b];
+  });
+  var lasers = [];
+  for (var ri = 0; ri < orderedScores.length; ri++) {
+    var rl = sg_resolveLaserAtScore(orderedScores[ri], vL, vR, vC, sT, sH, horizonY, travel);
+    if (rl) lasers.push(rl);
   }
+  if (lasers.length < 2) { ctx.restore(); return; }
+
+  // Build a SINGLE union polygon traced as the outer boundary:
+  //   topmost curve (forward)
+  //   → right-side staircase: lineTo planeR of each next curve down
+  //   → bottommost curve (reverse)
+  //   → left-side staircase: lineTo planeL of each previous curve up
+  //   → close
+  // Drawing it once eliminates the AA double-alpha seam that appears
+  // when adjacent translucent strips share a curve boundary, while
+  // still showing the per-score L step on the lateral edges.
+  ctx.beginPath();
+  var top0 = lasers[0];
+  ctx.moveTo(top0.screenPts[0].x, top0.screenPts[0].y);
+  sg_appendLaserCurvePath(ctx, top0.screenPts, false);
+  for (var sR = 1; sR < lasers.length; sR++) {
+    var pts = lasers[sR].screenPts;
+    var pR  = pts[pts.length - 1];
+    ctx.lineTo(pR.x, pR.y);
+  }
+  var botL = lasers[lasers.length - 1];
+  sg_appendLaserCurvePath(ctx, botL.screenPts, true);
+  for (var sL = lasers.length - 2; sL >= 0; sL--) {
+    var pL = lasers[sL].screenPts[0];
+    ctx.lineTo(pL.x, pL.y);
+  }
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(0,229,204,0.10)';
+  ctx.fill();
   ctx.restore();
 }
 
