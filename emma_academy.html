@@ -6602,7 +6602,7 @@ function sg_onPD(e) {
           sg_planeMaskActive = sg_planeMasks.length - 1;
         }
         var activeMask = sg_planeMasks[sg_planeMaskActive];
-        activeMask.points.push({ xN: coordN.xN, yN: coordN.yN });
+        activeMask.points.push(sg_maskCoordToPoint(coordN));
         var newIdx = activeMask.points.length - 1;
         sg_planeMaskSelected = { mask: sg_planeMaskActive, idx: newIdx };
         sg_planeMaskDragPt = {
@@ -6764,8 +6764,7 @@ function sg_onPM(e) {
           var fbm = sg_getFieldBounds();
           var nrm = sg_canvasToMaskN(p, fbm.vL, fbm.vR, fbm.sT, fbm.sB);
           if (nrm) {
-            pmMask.points[sg_planeMaskDragPt.idx].xN = nrm.xN;
-            pmMask.points[sg_planeMaskDragPt.idx].yN = nrm.yN;
+            sg_maskAssignPointFromCoord(pmMask.points[sg_planeMaskDragPt.idx], nrm);
             sg_drawFrame(sg_curT);
           }
         }
@@ -7289,6 +7288,9 @@ function sg_distanceMappingToString() {
       // wouldn't render anyway).
       if (!mask || !mask.points || mask.points.length < 3) return;
       var rows = mask.points.map(function(p) {
+        if (isFinite(+p.xImg) && isFinite(+p.yImg)) {
+          return '{ xImg: ' + (+p.xImg).toFixed(3) + ', yImg: ' + (+p.yImg).toFixed(3) + ' }';
+        }
         return '{ xN: ' + (+p.xN).toFixed(3) + ', yN: ' + (+p.yN).toFixed(3) + ' }';
       }).join(', ');
       var comma = (mi < sg_planeMasks.length - 1) ? ',' : '';
@@ -7391,15 +7393,19 @@ var SG_LASER_SHAPES = {
 };
 
 // Hardcoded plane-mask defaults baked into this build. Each entry is a
-// closed polygon (≥ 3 points) describing a region of the scoring field
-// where the cockpit plane fill must NOT be drawn — used to "hide" the
-// plane behind dashboard elements (steering wheel, instrument cluster,
-// …) for the perspective illusion. Coordinates are scoring-field
-// normalised:
-//   xN ∈ [-0.5, +0.5]  measured from the centre column (vC), scaled to
-//                      half the field width (vR-vL)/2.
-//   yN ∈ [0, 1]        measured from the top of the scoring field (sT)
-//                      to the bottom (sB).
+// closed polygon (≥ 3 points) describing a region of the cockpit-plane
+// fill that should NOT be drawn — used to "hide" the plane behind
+// dashboard elements (steering wheel, instrument cluster, …) for the
+// perspective illusion.
+//
+// Two coordinate formats are supported per point:
+//   { xImg, yImg } — fractions of the dashboard PNG natural rectangle
+//                    (xImg ∈ [0..1] across PNG width, yImg ∈ [0..1]
+//                    across PNG height). PREFERRED — keeps masks glued
+//                    to the cockpit drawing at any browser zoom.
+//   { xN,   yN   } — legacy: scoring-field-normalised. xN ∈ [-0.5, +0.5]
+//                    across (vR-vL); yN ∈ [0, 1] across sH. Migrated
+//                    automatically to {xImg, yImg} on first render.
 // Paste the SG_PLANE_MASKS block emitted by "Copy distance mapping"
 // into this literal to ship the user's mask set as the new defaults.
 var SG_PLANE_MASKS = [
@@ -7439,8 +7445,15 @@ var SG_PLANE_MASK_HIT_PX = 12;
 // scoring-field bottom because the dashboard image is rendered with
 // scaleY = 5 and reaches the canvas bottom — masks need to follow it
 // so points can land on the lower half of the steering wheel.
-var SG_MASK_YN_MIN = -0.5;
-var SG_MASK_YN_MAX = 2.0;
+// Mask coordinates are now stored as fractions of the dashboard PNG's
+// natural rectangle ({xImg, yImg} ∈ [0..1] for points strictly inside
+// the image; bleed is allowed within the bounds below). Legacy points
+// stored as {xN, yN} (scoring-field-normalised) are migrated on first
+// render via sg_migrateMaskPointInPlace.
+var SG_MASK_XIMG_MIN = -0.20;
+var SG_MASK_XIMG_MAX =  1.20;
+var SG_MASK_YIMG_MIN = -0.20;
+var SG_MASK_YIMG_MAX =  1.20;
 function sg_clonePlaneMasks(src) {
   if (!Array.isArray(src)) return [];
   var out = [];
@@ -7451,13 +7464,20 @@ function sg_clonePlaneMasks(src) {
     for (var j = 0; j < m.points.length; j++) {
       var p = m.points[j];
       if (p == null) continue;
+      // New format: {xImg, yImg} — keep as-is (clamped).
+      if (isFinite(+p.xImg) && isFinite(+p.yImg)) {
+        pts.push({
+          xImg: Math.max(SG_MASK_XIMG_MIN, Math.min(SG_MASK_XIMG_MAX, +p.xImg)),
+          yImg: Math.max(SG_MASK_YIMG_MIN, Math.min(SG_MASK_YIMG_MAX, +p.yImg))
+        });
+        continue;
+      }
+      // Legacy format: {xN, yN} — preserve verbatim; migrated lazily by
+      // sg_migrateMaskPointInPlace once the canvas geometry is known.
       var xN = +p.xN;
       var yN = +p.yN;
       if (!isFinite(xN) || !isFinite(yN)) continue;
-      pts.push({
-        xN: Math.max(-0.5, Math.min(0.5, xN)),
-        yN: Math.max(SG_MASK_YN_MIN, Math.min(SG_MASK_YN_MAX, yN))
-      });
+      pts.push({ xN: xN, yN: yN });
     }
     if (pts.length >= 1) out.push({ points: pts });
   }
@@ -7472,19 +7492,40 @@ function sg_resetPlaneMasksFromDefault() {
 }
 sg_resetPlaneMasksFromDefault();
 
-// Convert a stored mask polygon (xN/yN normalised) to canvas-pixel
-// points using the current scoring-field bounds. Returns null when
-// the mask has fewer than 3 points so callers can skip rendering.
+// Convert a stored mask polygon to canvas-pixel points using the
+// current dashboard-image rectangle. Legacy {xN, yN} points are
+// migrated to {xImg, yImg} the first time the canvas geometry is
+// known. Returns null when the mask has fewer than 1 point.
 function sg_maskScreenPoints(mask, vL, vR, sT, sB) {
   if (!mask || !Array.isArray(mask.points) || mask.points.length < 1) return null;
   var vC = (vL + vR) / 2;
   var halfW = (vR - vL) / 2;
   var sH = sB - sT;
+  var dashRect = sg_dashboardImageRect(vC, sT, sB);
   return mask.points.map(function(p) {
-    return {
-      x: vC + p.xN * (halfW * 2),  // xN spans the full field width
-      y: sT + p.yN * sH
-    };
+    // Migrate legacy {xN, yN} → {xImg, yImg} once the dashboard rect
+    // is available. This freezes the point to wherever it currently
+    // sits on the image; after migration it stays glued there.
+    if ((!isFinite(+p.xImg) || !isFinite(+p.yImg))
+        && isFinite(+p.xN) && isFinite(+p.yN)
+        && dashRect && dashRect.drawW > 0 && dashRect.drawH > 0) {
+      var canvasX = vC + p.xN * (halfW * 2);
+      var canvasY = sT + p.yN * sH;
+      p.xImg = (canvasX - dashRect.drawX) / dashRect.drawW;
+      p.yImg = (canvasY - dashRect.drawY) / dashRect.drawH;
+      delete p.xN; delete p.yN;
+    }
+    if (isFinite(+p.xImg) && isFinite(+p.yImg) && dashRect) {
+      return {
+        x: dashRect.drawX + p.xImg * dashRect.drawW,
+        y: dashRect.drawY + p.yImg * dashRect.drawH
+      };
+    }
+    // Dashboard image not loaded yet — fall back to scoring-field
+    // coords so the polygon still renders something sensible.
+    var xN = isFinite(+p.xN) ? +p.xN : 0;
+    var yN = isFinite(+p.yN) ? +p.yN : 0;
+    return { x: vC + xN * (halfW * 2), y: sT + yN * sH };
   });
 }
 
@@ -7507,20 +7548,55 @@ function sg_planeMaskWaypointHit(p, vL, vR, sT, sB) {
   return null;
 }
 
-// Convert a canvas pointer to scoring-field normalised mask coords.
-// xN is clamped to [-0.5, +0.5] (field width); yN clamp comes from
-// SG_MASK_YN_MIN/MAX defined alongside sg_clonePlaneMasks above.
+// Convert a canvas pointer to dashboard-image-natural mask coords.
+// Returns {xImg, yImg} ∈ roughly [0..1] (with bleed bounds) so masks
+// stay glued to image features at any zoom or canvas geometry. Falls
+// back to scoring-field coords (returning {xN, yN}) if the dashboard
+// image is not loaded yet — the next render will migrate them.
 function sg_canvasToMaskN(p, vL, vR, sT, sB) {
   var vC = (vL + vR) / 2;
   var halfW = (vR - vL) / 2;
   var sH = sB - sT;
   if (halfW <= 0 || sH <= 0) return null;
-  var xN = (p.x - vC) / (halfW * 2);
-  var yN = (p.y - sT) / sH;
+  var dashRect = sg_dashboardImageRect(vC, sT, sB);
+  if (dashRect && dashRect.drawW > 0 && dashRect.drawH > 0) {
+    var xImg = (p.x - dashRect.drawX) / dashRect.drawW;
+    var yImg = (p.y - dashRect.drawY) / dashRect.drawH;
+    return {
+      xImg: Math.max(SG_MASK_XIMG_MIN, Math.min(SG_MASK_XIMG_MAX, xImg)),
+      yImg: Math.max(SG_MASK_YIMG_MIN, Math.min(SG_MASK_YIMG_MAX, yImg))
+    };
+  }
+  // Dashboard image not ready — emit legacy coords as a placeholder.
   return {
-    xN: Math.max(-0.5, Math.min(0.5, xN)),
-    yN: Math.max(SG_MASK_YN_MIN, Math.min(SG_MASK_YN_MAX, yN))
+    xN: Math.max(-0.5, Math.min(0.5, (p.x - vC) / (halfW * 2))),
+    yN: (p.y - sT) / sH
   };
+}
+
+// Wrap the result of sg_canvasToMaskN as a fresh mask-point object.
+function sg_maskCoordToPoint(coord) {
+  if (!coord) return { xImg: 0.5, yImg: 0.5 };
+  if (isFinite(+coord.xImg) && isFinite(+coord.yImg)) {
+    return { xImg: +coord.xImg, yImg: +coord.yImg };
+  }
+  return { xN: +coord.xN, yN: +coord.yN };
+}
+
+// Mutate an existing mask-point in place to match a new pointer-derived
+// coordinate. Switches storage format when the dashboard rect becomes
+// available so legacy points migrate naturally on the next drag.
+function sg_maskAssignPointFromCoord(p, coord) {
+  if (!p || !coord) return;
+  if (isFinite(+coord.xImg) && isFinite(+coord.yImg)) {
+    p.xImg = +coord.xImg;
+    p.yImg = +coord.yImg;
+    delete p.xN; delete p.yN;
+  } else {
+    p.xN = +coord.xN;
+    p.yN = +coord.yN;
+    delete p.xImg; delete p.yImg;
+  }
 }
 
 // Per-score shapes; populated lazily from SG_LASER_SHAPES on first lookup
@@ -8751,6 +8827,25 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
   ctx.restore();
 }
 
+// Single source of truth for the dashboard PNG placement on the canvas.
+// All callers (the image draw, the plane masks, …) compute pixel positions
+// from {drawX, drawY, drawW, drawH} so anything anchored to the cockpit
+// image stays glued to the same image features at any zoom level.
+function sg_dashboardImageRect(vC, sT, sB) {
+  if (!sg_dashImage || !sg_dashImage.complete) return null;
+  var sH    = sB - sT;
+  var imgAR = sg_dashImage.width / sg_dashImage.height;
+  var baseH = sH * 0.5;
+  var baseW = baseH * imgAR;
+  var drawW = baseW * sg_dashScaleX;
+  var drawH = baseH * sg_dashScaleY;
+  var drawX = vC - drawW * 0.5;
+  var offsetFrac = sg_dashOffsetY / 500;          // legacy 100 → 0.20 of sH
+  var pivotY = sT + sH * 0.5 + sH * offsetFrac;
+  var drawY  = pivotY - drawH * 0.5;
+  return { drawX: drawX, drawY: drawY, drawW: drawW, drawH: drawH };
+}
+
 // ── Virtual Dashboard Overlay ──
 function sg_drawDashboard(ctx, W, H, vL, vR, vC, sT, sB, d, showZones) {
   if (showZones === undefined) showZones = true;
@@ -8760,22 +8855,10 @@ function sg_drawDashboard(ctx, W, H, vL, vR, vC, sT, sB, d, showZones) {
   ctx.save();
 
   // ── Background image (real rulebook diagram) ───────────────────────────────
-  if (sg_dashImage && sg_dashImage.complete) {
-    var imgAR  = sg_dashImage.width / sg_dashImage.height;
-    // Size and offset are expressed as fractions of the scoring field
-    // height (sH) so the dashboard image keeps the same RELATIVE size
-    // and position inside the scoring field at any browser zoom level
-    // (topbar/transport CSS heights no longer skew the layout).
-    //   baseH = 50% of sH at scale 1 → drawH = baseH * sg_dashScaleY
-    //   offset fraction ≈ sg_dashOffsetY / 500 (legacy 100 ≈ 20% of sH)
-    var baseH  = sH * 0.5;
-    var baseW  = baseH * imgAR;
-    var drawW  = baseW * sg_dashScaleX;
-    var drawH  = baseH * sg_dashScaleY;
-    var drawX  = vC - drawW * 0.5;
-    var offsetFrac = sg_dashOffsetY / 500;         // legacy 100 → 0.20 of sH
-    var pivotY = sT + sH * 0.5 + sH * offsetFrac;
-    var drawY  = pivotY - drawH * 0.5;
+  var dashRect = sg_dashboardImageRect(vC, sT, sB);
+  if (dashRect) {
+    var drawX = dashRect.drawX, drawY = dashRect.drawY;
+    var drawW = dashRect.drawW, drawH = dashRect.drawH;
 
     ctx.save();
     ctx.beginPath();
