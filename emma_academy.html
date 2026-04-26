@@ -6049,12 +6049,13 @@ function sg_initIfNeeded() {
       sg_state.mode = 'ready';
       sg_state.currentPts = [];
       sg_state.distanceDragging = false;
-      // Every time we enter Distance mode, drop the marker on score 15
-      // (over windshield). The per-score sg_distanceUserCalib entries
-      // persist across mode switches so previous calibration work is
-      // preserved.
+      // Every time we enter Distance mode, drop the marker on score 12
+      // (the bottom edge of the windshield plane — natural starting
+      // point for calibration). The per-score sg_distanceUserCalib
+      // entries persist across mode switches so previous calibration
+      // work is preserved.
       if (entering) {
-        sg_state.distanceY = SG_DISTANCE_SCORE_YN[15];
+        sg_state.distanceY = SG_DISTANCE_SCORE_YN[12];
         sg_state.distanceNoSound = false;
         sg_distanceLiveT = null;
         sg_laserSelected = null;
