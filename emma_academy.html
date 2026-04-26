@@ -7339,24 +7339,86 @@ function sg_resolveLaserAtScore(score, vL, vR, vC, sT, sH, horizonY, travel) {
       y: lineY + pt.dyN * sH
     };
   });
-  return { screenPts: screenPts, lineY: lineY, planeL: planeL, planeR: planeR };
+  return { screenPts: screenPts, shapePts: pts, lineY: lineY, planeL: planeL, planeR: planeR };
 }
 
-// Draw a translucent quadrilateral anchored on one edge to the laser
-// curve of score 12 (the windshield/dashboard joint) and on the other
-// to the laser curve at the score the marker is currently on. The
-// plane "grows" out of score 12 in the direction of the marker —
-// upward toward 15 (the windshield) when the marker climbs from 12,
-// downward toward 1 (the listener) when the marker drops below 12.
-// The two curves are connected at their lateral endpoints with
-// straight diagonals so the polygon closes around the cockpit region
-// the scores describe, and filled with a vertical teal gradient that
-// is denser near the score-12 anchor and fades toward the marker edge
-// — the plane reads as a continuous surface emanating from the
-// windshield base.
+// Group consecutive visible segments of a laser curve into screen-space
+// x-ranges. pts[i].visibleAfter gates the segment that starts at point
+// i; a "run" is a maximal stretch of contiguous visible segments. The
+// returned ranges always have xL ≤ xR (so the caller can intersect
+// runs from two curves without worrying about traversal direction).
+function sg_laserVisibleXRuns(screenPts, shapePts) {
+  var runs = [];
+  var n = screenPts.length;
+  if (n < 2) return runs;
+  var i = 0;
+  while (i < n - 1) {
+    if (shapePts[i].visibleAfter === false) { i++; continue; }
+    var startIdx = i;
+    while (i < n - 1 && shapePts[i].visibleAfter !== false) i++;
+    var endIdx = i;
+    var xa = screenPts[startIdx].x, xb = screenPts[endIdx].x;
+    runs.push({ xL: Math.min(xa, xb), xR: Math.max(xa, xb) });
+  }
+  return runs;
+}
+
+// Fill a single strip between two laser curves (top + bot) respecting
+// the visibleAfter flag on each. The strip polygon is built once
+// (top curve forward + lateral connector + bottom curve reversed +
+// closepath) and then drawn once per (topRun × botRun) x-overlap with
+// a clipping rectangle, so hidden segments on either curve carve a
+// vertical "missing column" through the fill.
+function sg_fillCockpitStrip(ctx, vL, vR, vC, sT, sB, sH, horizonY, travel, topScore, botScore) {
+  var top = sg_resolveLaserAtScore(topScore, vL, vR, vC, sT, sH, horizonY, travel);
+  var bot = sg_resolveLaserAtScore(botScore, vL, vR, vC, sT, sH, horizonY, travel);
+  if (!top || !bot) return;
+  var topRuns = sg_laserVisibleXRuns(top.screenPts, top.shapePts);
+  var botRuns = sg_laserVisibleXRuns(bot.screenPts, bot.shapePts);
+  if (!topRuns.length || !botRuns.length) return;
+  // Clip-and-fill once per overlap. We don't merge runs because an
+  // adjacent overlap might come from a different (topRun, botRun) pair
+  // — drawing them separately keeps the math trivial.
+  var clipBottomY = sB + 200;   // generous bleed past sB for low scores
+  for (var t = 0; t < topRuns.length; t++) {
+    for (var b = 0; b < botRuns.length; b++) {
+      var xL = Math.max(topRuns[t].xL, botRuns[b].xL);
+      var xR = Math.min(topRuns[t].xR, botRuns[b].xR);
+      if (xR <= xL) continue;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(xL, sT, xR - xL, clipBottomY - sT);
+      ctx.clip();
+      ctx.beginPath();
+      ctx.moveTo(top.screenPts[0].x, top.screenPts[0].y);
+      sg_appendLaserCurvePath(ctx, top.screenPts, false);
+      ctx.lineTo(bot.screenPts[bot.screenPts.length - 1].x,
+                 bot.screenPts[bot.screenPts.length - 1].y);
+      sg_appendLaserCurvePath(ctx, bot.screenPts, true);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(0,229,204,0.12)';
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+}
+
+// Draw the cockpit plane as the UNION of the strips between every
+// consecutive score from the anchor (score 12) toward the marker. So
+// when the marker sits on score 9 the plane is the join of four
+// strips — 12↔11, 11↔10, 10↔9 — each filled independently. This
+// preserves every per-score perspective transition (the L of each
+// laser steps in/out at the score boundaries) instead of collapsing
+// them into a single big quadrilateral.
 //
-// Suppressed when the marker sits exactly on score 12 (the polygon
-// would be degenerate).
+// Each strip is painted by sg_fillCockpitStrip, which respects the
+// visibleAfter flag on both bounding curves so hidden segments carve
+// vertical "missing columns" through the fill — the plane stays
+// invisible behind dashboard elements (e.g. the steering wheel) just
+// like the laser line itself does.
+//
+// Suppressed when the marker sits exactly on score 12 (no strips to
+// draw).
 function sg_drawWindshieldPlane(ctx, W, H, vL, vR, vC, sT, sB, d, horizonY, travel, currentYN) {
   if (currentYN == null) return;
   var sH = sB - sT;
@@ -7364,100 +7426,34 @@ function sg_drawWindshieldPlane(ctx, W, H, vL, vR, vC, sT, sB, d, horizonY, trav
   var anchorYN = SG_DISTANCE_SCORE_YN[anchorScore];
   if (anchorYN == null) return;
   var deltaYN = currentYN - anchorYN;
-  // Marker exactly on the anchor → no plane (zero-thickness sliver).
   if (Math.abs(deltaYN) < 0.005) return;
   var markerScore = sg_yToDistanceScore(currentYN);
   if (markerScore == null) return;
-  // anchor is the TOP edge when the marker is below 12 (deltaYN > 0);
-  // otherwise it's the BOTTOM edge.
-  var anchorIsTop = (deltaYN > 0);
-  var topScore = anchorIsTop ? anchorScore : markerScore;
-  var bottomScore = anchorIsTop ? markerScore : anchorScore;
-  var top = sg_resolveLaserAtScore(topScore,    vL, vR, vC, sT, sH, horizonY, travel);
-  var bot = sg_resolveLaserAtScore(bottomScore, vL, vR, vC, sT, sH, horizonY, travel);
-  if (!top || !bot) return;
 
-  // Wherever EITHER bounding laser has a hidden segment we must also
-  // suppress the plane in that X strip — the hidden segment models a
-  // dashboard element (e.g. the steering wheel rim) sitting in front
-  // of the laser, so painting the plane on top would defeat the
-  // perspective illusion. Build the union of hidden X intervals from
-  // both curves, merge overlaps, then add them as inner rectangles to
-  // the clip path: even-odd fill turns those rectangles into holes.
-  function laserHiddenIntervals(score, planeL, planeR) {
-    var shape = sg_getLaserShape(score, false);
-    var pts = (shape && shape.pts && shape.pts.length >= 2) ? shape.pts : null;
-    if (!pts) return [];
-    var laserLen = planeR - planeL;
-    var out = [];
-    for (var i = 0; i < pts.length - 1; i++) {
-      if (pts[i].visibleAfter !== false) continue;
-      var xL = planeL + (pts[i].xN     + 0.5) * laserLen;
-      var xR = planeL + (pts[i + 1].xN + 0.5) * laserLen;
-      if (xR > xL) out.push({ xL: xL, xR: xR });
-    }
-    return out;
-  }
-  var hiddenIntervals = laserHiddenIntervals(topScore,    top.planeL, top.planeR)
-                .concat(laserHiddenIntervals(bottomScore, bot.planeL, bot.planeR));
-  // Merge overlapping intervals (otherwise even-odd could re-fill the
-  // overlap and reveal the plane in a region that should stay hidden).
-  hiddenIntervals.sort(function(a, b){ return a.xL - b.xL; });
-  var merged = [];
-  for (var hi = 0; hi < hiddenIntervals.length; hi++) {
-    var cur = hiddenIntervals[hi];
-    var prev = merged[merged.length - 1];
-    if (prev && cur.xL <= prev.xR) {
-      prev.xR = Math.max(prev.xR, cur.xR);
-    } else {
-      merged.push({ xL: cur.xL, xR: cur.xR });
-    }
-  }
-
-  ctx.save();
-  // Same vertical bleed as the laser line, plus an even-odd hole per
-  // hidden X interval so the plane paint never lands on a "behind the
-  // wheel" strip.
-  ctx.beginPath();
-  ctx.rect(vL, sT, vR - vL, H - sT);
-  for (var mi = 0; mi < merged.length; mi++) {
-    var hL = Math.max(vL, merged[mi].xL);
-    var hR = Math.min(vR, merged[mi].xR);
-    if (hR > hL) ctx.rect(hL, sT, hR - hL, H - sT);
-  }
-  ctx.clip('evenodd');
-
-  // Build the closed path: top curve (left → right), straight diagonal
-  // down to the bottom-right endpoint, bottom curve back (right → left),
-  // closePath to draw the final left-side diagonal.
-  ctx.beginPath();
-  ctx.moveTo(top.screenPts[0].x, top.screenPts[0].y);
-  sg_appendLaserCurvePath(ctx, top.screenPts, false);
-  ctx.lineTo(bot.screenPts[bot.screenPts.length - 1].x,
-             bot.screenPts[bot.screenPts.length - 1].y);
-  sg_appendLaserCurvePath(ctx, bot.screenPts, true);
-  ctx.closePath();
-
-  // Vertical gradient: denser near the score-12 anchor, fading toward
-  // the marker edge so the plane visibly emanates from the windshield
-  // base regardless of which direction the marker travels.
-  var grad = ctx.createLinearGradient(0, top.lineY, 0, bot.lineY);
-  if (anchorIsTop) {
-    grad.addColorStop(0,    'rgba(0,229,204,0.18)');
-    grad.addColorStop(0.5,  'rgba(0,229,204,0.10)');
-    grad.addColorStop(1,    'rgba(0,229,204,0.05)');
+  // Build the ordered list of scores from anchor to marker (inclusive).
+  // Marker above 12 → ascending; below 12 → descending.
+  var scoreList = [];
+  if (markerScore > anchorScore) {
+    for (var sc = anchorScore; sc <= markerScore; sc++) scoreList.push(sc);
   } else {
-    grad.addColorStop(0,    'rgba(0,229,204,0.05)');
-    grad.addColorStop(0.5,  'rgba(0,229,204,0.10)');
-    grad.addColorStop(1,    'rgba(0,229,204,0.18)');
+    for (var sc = anchorScore; sc >= markerScore; sc--) scoreList.push(sc);
   }
-  ctx.fillStyle = grad;
-  ctx.fill();
-  // No outline: the lateral diagonals that close the polygon would
-  // otherwise read as fake "edges" of the windshield. Fill alone gives
-  // the perspective cue the user is after.
+  if (scoreList.length < 2) return;
 
-  ctx.restore();
+  // For each consecutive pair, paint a strip between them. The "top"
+  // and "bottom" scores are determined by yN (lower yN = higher on
+  // screen) so the polygon orientation stays correct in either
+  // direction of travel.
+  for (var i = 0; i < scoreList.length - 1; i++) {
+    var scA = scoreList[i];
+    var scB = scoreList[i + 1];
+    var yA = SG_DISTANCE_SCORE_YN[scA];
+    var yB = SG_DISTANCE_SCORE_YN[scB];
+    if (yA == null || yB == null) continue;
+    var topScore = (yA < yB) ? scA : scB;
+    var botScore = (yA < yB) ? scB : scA;
+    sg_fillCockpitStrip(ctx, vL, vR, vC, sT, sB, sH, horizonY, travel, topScore, botScore);
+  }
 }
 
 // Width-zone editing: when true the vertical zone lines become draggable.
