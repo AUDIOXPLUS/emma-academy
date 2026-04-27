@@ -1435,9 +1435,6 @@ body.immersive #inst-picker,body.immersive #btn-add-wrap{opacity:0;pointer-event
         <button class="tb-dd-reset" id="sg-btn-mask-reset" style="margin-top:4px" title="Remove every mask polygon and revert to the baked SG_PLANE_MASKS defaults.">&#8635; Reset masks (all)</button>
         <button class="tb-dd-reset" id="sg-btn-copy-distance" style="margin-top:4px" title="Copy the current distance mapping (default + your edits) as a JS array literal">&#128203; Copy distance mapping</button>
         <div class="tb-dd-sep"></div>
-        <button class="tb-dd-reset" id="sg-btn-laser-mig-lock" style="margin-top:4px" title="Lock the laser visible-length ratio at the current browser zoom. Open the page at the zoom the SG_LASER_SHAPES were authored at (typically 67%), click this once. Stored in localStorage; the laser endpoints will then track the cockpit drawing at any later zoom.">&#128274; Lock laser bounds @ this zoom</button>
-        <button class="tb-dd-reset" id="sg-btn-laser-mig-clear" style="margin-top:4px" title="Forget the locked laser MIG and fall back to the legacy canvas-width formula.">&#8635; Clear laser bounds lock</button>
-        <div class="tb-dd-sep"></div>
         <button class="tb-dd-reset" id="sg-dc-reset">&#8635; Reset</button>
       </div>
     </div>
@@ -6088,22 +6085,6 @@ function sg_initIfNeeded() {
     });
     var copyDistBtn = document.getElementById('sg-btn-copy-distance');
     if (copyDistBtn) copyDistBtn.addEventListener('click', sg_copyDistanceMapping);
-    var migLockBtn = document.getElementById('sg-btn-laser-mig-lock');
-    if (migLockBtn) migLockBtn.addEventListener('click', function(){
-      var v = sg_calibrateLaserMIG();
-      if (v != null) {
-        try { window.alert('Laser bounds locked. MIG = ' + v.toFixed(4) + '\n(stored in localStorage, applies at any zoom from now on)'); } catch (e) {}
-        sg_drawFrame(sg_curT || 0);
-      } else {
-        try { window.alert('Cannot lock — dashboard image not loaded yet. Wait for the cockpit drawing to appear, then try again.'); } catch (e) {}
-      }
-    });
-    var migClearBtn = document.getElementById('sg-btn-laser-mig-clear');
-    if (migClearBtn) migClearBtn.addEventListener('click', function(){
-      sg_clearLaserMIG();
-      try { window.alert('Laser bounds lock cleared. Falling back to legacy canvas-width formula.'); } catch (e) {}
-      sg_drawFrame(sg_curT || 0);
-    });
     var showTlsCb = document.getElementById('sg-dc-show-tls');
     if (showTlsCb) {
       showTlsCb.checked = !!sg_distanceShowTLS;
@@ -9056,55 +9037,20 @@ function sg_dashboardImageRect(vC, sT, sB) {
 }
 
 // ── Laser visible-length MIG ─────────────────────────────────────────
-// MIG = (vR − vL) / drawW captured at the user's authoring zoom and
-// persisted to localStorage. Lets the laser endpoints (xN = ±0.5)
-// stay glued to the same cockpit features at any later zoom because
+// MIG = (vR − vL) / drawW captured once on the canonical setup
+// (browser at zoom 67% on the reference tablet — the SG_LASER_SHAPES
+// authoring zoom) and baked here as a constant so the laser endpoints
+// (xN = ±0.5) ride a fixed image fraction at any later zoom on any
+// device:
 //     halfLen = drawW * 0.5 * lenFrac * MIG
-// gives a fixed image fraction. The user calibrates explicitly via
-// the Dashboard panel button "Lock laser bounds @ this zoom" at zoom
-// 67% (or whatever zoom the SG_LASER_SHAPES were authored at).
-var SG_LASER_MIG_KEY = 'emma_sg_laser_mig_v1';
-function sg_getLaserMIG() {
-  try {
-    var raw = window.localStorage && window.localStorage.getItem(SG_LASER_MIG_KEY);
-    var v = raw != null ? parseFloat(raw) : NaN;
-    return isFinite(v) && v > 0 ? v : null;
-  } catch (e) { return null; }
-}
-function sg_setLaserMIG(value) {
-  try {
-    if (window.localStorage) window.localStorage.setItem(SG_LASER_MIG_KEY, String(value));
-  } catch (e) {}
-}
-function sg_clearLaserMIG() {
-  try {
-    if (window.localStorage) window.localStorage.removeItem(SG_LASER_MIG_KEY);
-  } catch (e) {}
-}
-// Capture MIG from the current canvas geometry (called by the
-// calibration button). Returns the captured value or null if the
-// dashboard image isn't loaded yet.
-function sg_calibrateLaserMIG() {
-  if (!sg_canvas || !sg_dashImage || !sg_dashImage.complete) return null;
-  var d  = window.devicePixelRatio || 1;
-  var W  = sg_canvas.width, H = sg_canvas.height;
-  var vL = 34 * d, vR = W - 34 * d, vC = (vL + vR) / 2;
-  var sT = (44 + 18) * d, sB = H - (60 + 18) * d;
-  var rect = sg_dashboardImageRect(vC, sT, sB);
-  if (!rect || rect.drawW <= 0) return null;
-  var mig = (vR - vL) / rect.drawW;
-  sg_setLaserMIG(mig);
-  return mig;
-}
-// halfLen formula. Uses calibrated MIG if available, otherwise falls
-// back to the legacy canvas-width formula (correct only at the zoom
-// the shapes were authored at).
+// Update this constant if the SG_LASER_SHAPES literal is re-authored
+// at a different canonical setup. lenFrac in CALIB stays unchanged.
+var SG_LASER_LEN_MIG = 0.7725;
 function sg_laserHalfLen(lenFrac, vL, vR, dashRect) {
-  var mig = sg_getLaserMIG();
-  if (mig != null && dashRect && dashRect.drawW > 0) {
-    return dashRect.drawW * 0.5 * lenFrac * mig;
+  if (!dashRect || dashRect.drawW <= 0) {
+    return (vR - vL) * 0.5 * lenFrac;
   }
-  return (vR - vL) * 0.5 * lenFrac;
+  return dashRect.drawW * 0.5 * lenFrac * SG_LASER_LEN_MIG;
 }
 
 // ── Virtual Dashboard Overlay ──
