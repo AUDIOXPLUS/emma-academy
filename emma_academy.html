@@ -6391,11 +6391,12 @@ function sg_zoneHitTest(pCanvas) {
   }
   var tol = SG_ZONE_HIT_PX * d;
   var best = null, bestDist = Infinity;
+  var hitDashRect = sg_dashboardImageRect(vC, (44 + 18) * d, (sg_canvas.height || 0) - (60 + 18) * d);
   for (var i = 0; i < SG_WIDTH_ZONES.length; i++) {
     // Skip zone 6 on the side that's off-screen — handled above via indicators
     var z6L_off = (i === 6 && _sg_z6_inds && _sg_z6_inds.L);
     var z6R_off = (i === 6 && _sg_z6_inds && _sg_z6_inds.R);
-    var hw = SG_WIDTH_ZONES[i] * (vC - vL);
+    var hw = sg_imageHalfWidth(SG_WIDTH_ZONES[i], vL, vR, hitDashRect);
     var lx = vC - hw, rx = vC + hw;
     if (!z6L_off) {
       var dl = Math.abs(pCanvas.x - lx);
@@ -6416,14 +6417,16 @@ function sg_updateDraggedZone(pCanvas) {
   if (!hit) return;
   var d = window.devicePixelRatio || 1;
   var W = sg_canvas.width;
+  var H = sg_canvas.height || 0;
   var vL = 34*d, vR = W - 34*d, vC = (vL + vR) / 2;
-  var hwMax = (vC - vL);
+  var dragDashRect = sg_dashboardImageRect(vC, (44 + 18) * d, H - (60 + 18) * d);
   var dx = (pCanvas.x - vC) * hit.side;     // distance from centre on the side
+  var newFrac = sg_imageHalfWidthInverse(dx, vL, vR, dragDashRect);
   // Zone 6 (7.5 pts) is allowed to travel off-screen (frac > 1.0);
   // other zones stay inside the scoring field.
-  var newFrac = (hit.idx === 6)
-    ? Math.max(0.05, dx / hwMax)
-    : Math.max(0.001, Math.min(0.999, dx / hwMax));
+  newFrac = (hit.idx === 6)
+    ? Math.max(0.05, newFrac)
+    : Math.max(0.001, Math.min(0.999, newFrac));
   // Keep monotonic: clamp between neighbours (no upper bound for zone 6)
   var lower = (hit.idx > 0) ? SG_WIDTH_ZONES[hit.idx - 1] + 0.005 : 0.005;
   if (hit.idx === 6) {
@@ -9053,6 +9056,27 @@ function sg_laserHalfLen(lenFrac, vL, vR, dashRect) {
   return dashRect.drawW * 0.5 * lenFrac * SG_LASER_LEN_MIG;
 }
 
+// Half-width of an image-anchored fraction. Used for SG_WIDTH_ZONES
+// rendering / hit-test / drag — same MIG as the laser since both
+// translate "fraction of canvas half-width at authoring zoom" into a
+// fixed fraction of the dashboard PNG width at any later zoom.
+function sg_imageHalfWidth(frac, vL, vR, dashRect) {
+  if (!dashRect || dashRect.drawW <= 0) {
+    return frac * (vR - vL) * 0.5;
+  }
+  return frac * dashRect.drawW * 0.5 * SG_LASER_LEN_MIG;
+}
+// Inverse: given a half-width in canvas pixels, recover the
+// SG_WIDTH_ZONES fraction. Used by the zone drag handler.
+function sg_imageHalfWidthInverse(hw, vL, vR, dashRect) {
+  if (!dashRect || dashRect.drawW <= 0) {
+    var d1 = (vR - vL) * 0.5;
+    return d1 > 0 ? hw / d1 : 0;
+  }
+  var d2 = dashRect.drawW * 0.5 * SG_LASER_LEN_MIG;
+  return d2 > 0 ? hw / d2 : 0;
+}
+
 // ── Virtual Dashboard Overlay ──
 function sg_drawDashboard(ctx, W, H, vL, vR, vC, sT, sB, d, showZones) {
   if (showZones === undefined) showZones = true;
@@ -9085,7 +9109,7 @@ function sg_drawDashboard(ctx, W, H, vL, vR, vC, sT, sB, d, showZones) {
   ctx.globalAlpha = 1.0;
   _sg_z6_inds = null; // reset off-screen indicator hit boxes every frame
   for (var i = 0; i < SG_WIDTH_ZONES.length; i++) {
-    var hw   = SG_WIDTH_ZONES[i] * (vC - vL);
+    var hw   = sg_imageHalfWidth(SG_WIDTH_ZONES[i], vL, vR, dashRect);
     var gx_L = vC - hw, gx_R = vC + hw;
     var pts  = SG_WIDTH_SCORES[i];
     var alz  = 0.55 + i * 0.055;
