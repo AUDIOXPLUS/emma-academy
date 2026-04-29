@@ -1,0 +1,24 @@
+{
+  "hosting": {
+    "public": ".",
+    "ignore": [
+      "firebase.json",
+      ".firebaserc",
+      "**/.*",
+      "**/node_modules/**",
+      "*.bat",
+      "create_slim_json.js",
+      "extract_emma_data.js",
+      "README.txt"
+    ],
+    "cleanUrls": true,
+    "headers": [
+      {
+        "source": "**/*.@(json|html|js|css|mp3|wav|ogg|png|jpg|jpeg|svg|webp)",
+        "headers": [
+          { "key": "Cache-Control", "value": "public, max-age=3600" }
+        ]
+      }
+    ]
+  }
+}
