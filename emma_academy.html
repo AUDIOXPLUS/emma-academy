@@ -781,6 +781,24 @@ body.immersive #inst-picker,body.immersive #btn-add-wrap{opacity:0;pointer-event
     #page-tonal .clips-controls { grid-template-columns: 1fr 1fr; }
 }
 
+/* Landing + login: stack vertically on phones so all 5 module cards
+   stay reachable without sideways scrolling. */
+@media (max-width: 760px) {
+    #page-main, #page-login { justify-content: flex-start; padding: 28px 16px 32px; box-sizing: border-box; overflow-y: auto; }
+    .landing-emma-logo { width: min(78vw, 340px); }
+    .landing-logo { width: min(78vw, 340px); font-size: 26px; margin-bottom: 28px; letter-spacing: 1.5px; }
+    .landing-subtitle { font-size: 12px; }
+    .landing-credit { font-size: 11px; margin-bottom: 14px; }
+    .landing-info-btn { margin-bottom: 18px; }
+    .landing-buttons { flex-direction: column; gap: 12px; width: 100%; max-width: 360px; }
+    .landing-btn { width: 100%; padding: 18px 22px; }
+    .landing-btn-icon { font-size: 26px; margin-bottom: 8px; }
+    .landing-btn-title { font-size: 16px; margin-bottom: 4px; }
+    .landing-btn-sub { font-size: 11px; }
+    .login-box { width: 100%; max-width: 340px; padding: 24px 24px; }
+    .emma-build-tag { right: 10px !important; }
+}
+
 /* Build tag scales together with the topbar so it stays proportional
    on small screens. */
 .emma-build-tag { font-size: clamp(8px, 1vh, 10px); bottom: clamp(16px, 2.4vh, 22px); }
