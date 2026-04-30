@@ -1422,7 +1422,7 @@ body.immersive #inst-picker,body.immersive #btn-add-wrap{opacity:0;pointer-event
         <div class="tb-dd-sep"></div>
         <div class="tb-dd-section">DISTANCE</div>
         <label class="tb-dd-check">
-          <input type="checkbox" id="sg-dc-show-tls"> Show T / L / Size on score box
+          <input type="checkbox" id="sg-dc-show-tls"> Show T / Size on score box
         </label>
         <label class="tb-dd-check" title="Tap the laser to add a waypoint; drag a waypoint to move it; tap a waypoint to open Remove / Hide-segment / Close.">
           <input type="checkbox" id="sg-dc-edit-laser"> Edit laser shape
@@ -5929,7 +5929,7 @@ var sg_state = {
 var _sg_z6_inds = null;
 
 // Distance score box ▼/▲ stepper hit boxes, refreshed every frame the
-// distance marker is drawn. {yN_dn,yN_up,T_dn,T_up,L_dn,L_up} → {x,y,w,h}.
+// distance marker is drawn. {yN_dn,yN_up,T_dn,T_up,Size_dn,Size_up} → {x,y,w,h}.
 var _sg_distance_arrows = null;
 
 // Laser line bounds, refreshed every frame the line is drawn.
@@ -6213,16 +6213,15 @@ function sg_loadFromData(data, fileName) {
       if (!sg_laserShapeable(sc)) return;
       var src = data.laserShapes[k];
       if (!src || !Array.isArray(src.pts) || src.pts.length < 2) return;
-      var pts = src.pts.map(function(p, i){
-        var fixed = (i === 0) || (i === src.pts.length - 1);
+      var pts = src.pts.map(function(p) {
         var out = {
           visibleAfter: p.visibleAfter !== false,
-          fixed: fixed
+          fixed: false
         };
-        if (fixed || !isFinite(+p.xImg)) {
-          out.xN = Math.max(-0.5, Math.min(0.5, +p.xN));
-        } else {
+        if (isFinite(+p.xImg)) {
           out.xImg = +p.xImg;
+        } else if (isFinite(+p.xN)) {
+          out.xN = Math.max(-0.5, Math.min(0.5, +p.xN));
         }
         if (isFinite(+p.dyImg)) {
           out.dyImg = Math.max(-0.5, Math.min(0.5, +p.dyImg));
@@ -6231,10 +6230,6 @@ function sg_loadFromData(data, fileName) {
         }
         return out;
       });
-      // Force the two endpoints back to ±0.5 (defensive: a hand-edited
-      // file might drift slightly).
-      pts[0].xN = -0.5; pts[0].fixed = true;
-      pts[pts.length - 1].xN = +0.5; pts[pts.length - 1].fixed = true;
       sg_laserShapes[sc] = { pts: pts };
     });
   }
@@ -6454,7 +6449,7 @@ function sg_distanceLineHit(p) {
 // {field:'T'|'L'|'Score'|'Size', dir:-1|+1} or null.
 function sg_distanceArrowHitTest(p) {
   if (!_sg_distance_arrows) return null;
-  var fields = ['T', 'L', 'Score', 'Size'];
+  var fields = ['T', 'Score', 'Size'];
   for (var i = 0; i < fields.length; i++) {
     var f = fields[i];
     var dn = _sg_distance_arrows[f + '_dn'];
@@ -6489,7 +6484,7 @@ function sg_lineYToNearestScore(lineY, horizonY, travel) {
 // Apply a single ◀/▶ step to the given field.
 //   • Score: snaps the marker to the canonical yN of the new score so the
 //     user can step through 15 → 1 calibrating each landmark in turn.
-//   • T / L / Size: write into the per-score user calibration entry,
+//   • T / Size: write into the per-score user calibration entry,
 //     creating it (seeded from the currently-rendered auto values at the
 //     score's canonical yN) on first edit so all three fields stay
 //     defined for the merged interpolation.
@@ -6514,7 +6509,7 @@ function sg_applyDistanceStep(field, dir, big) {
   if (!entry) {
     var auto = sg_distanceAutoFromYN(canonYN);
     entry = sg_distanceUserCalib[curScore] = {
-      T: auto.T, L: auto.L, Size: auto.Size
+      T: auto.T, Size: auto.Size
     };
   }
   if (field === 'T') {
@@ -6523,10 +6518,6 @@ function sg_applyDistanceStep(field, dir, big) {
     // calibrations need to push the line further down past the visible
     // floor for the closest scores, so we leave headroom up to 2.0.
     entry.T = Math.max(0, Math.min(2, entry.T + stepT));
-  } else if (field === 'L') {
-    var stepL = (big ? 10 : 1) * dir;
-    var newL = Math.round(entry.L * 100) + stepL;
-    entry.L = Math.max(0, Math.min(100, newL)) / 100;
   } else if (field === 'Size') {
     var stepSz = (big ? 20 : 5) * dir;
     var newSz = Math.round(entry.Size * 100) + stepSz;
@@ -6653,15 +6644,19 @@ function sg_onPD(e) {
             : null;
           var prev = shape.pts[wp.idx - 1];
           var next = shape.pts[wp.idx + 1];
+          // Clamp in canvas-pixel space so the bounds don't depend on
+          // whether neighbours are stored as legacy xN or xImg. The 1-px
+          // ε keeps the polyline strictly monotonic. Endpoint clamps use
+          // the scoring-field edges (vL/vR) so the user can drag them
+          // outward to widen the laser past the current planeL/R.
+          var fieldL = (dwLine.vL != null) ? dwLine.vL : (dwLine.xL || 0);
+          var fieldR = (dwLine.vR != null) ? dwLine.vR : (dwLine.xR || 0);
           sg_laserDragWp = {
             score: curScore,
             idx: wp.idx,
             fixed: !!pt.fixed,
-            // Clamp in canvas-pixel space so the bounds don't depend on
-            // whether neighbours are stored as legacy xN or xImg. The
-            // 1-px ε keeps the polyline strictly monotonic.
-            minCanvasX: prev ? sg_laserPointCanvasX(prev, dwLine.xL, dwLine.xR, dwDashRect) + 1 : (dwLine.xL || 0),
-            maxCanvasX: next ? sg_laserPointCanvasX(next, dwLine.xL, dwLine.xR, dwDashRect) - 1 : (dwLine.xR || 0),
+            minCanvasX: prev ? sg_laserPointCanvasX(prev, dwLine.xL, dwLine.xR, dwDashRect) + 1 : fieldL,
+            maxCanvasX: next ? sg_laserPointCanvasX(next, dwLine.xL, dwLine.xR, dwDashRect) - 1 : fieldR,
             startX: p.x, startY: p.y,
             moved: false
           };
@@ -6888,7 +6883,7 @@ function sg_onPM(e) {
     // The pointer Y maps to the nearest score whose calibrated lineY is
     // closest, and the marker snaps to that score's canonical yN. Same
     // effect as pressing the Score ◀ ▶ buttons repeatedly, just driven
-    // by drag instead of clicks. T/L/Size come from the calibration so
+    // by drag instead of clicks. T/Size come from the calibration so
     // the line never escapes the table.
     var ds = sg_state.distanceDragStart;
     if (ds && ds.travel > 0) {
@@ -7052,7 +7047,8 @@ function sg_applyLaserPanelAction(action) {
     return;
   }
   var pt = shape.pts[idx];
-  if (action === 'remove' && !pt.fixed) {
+  var isEndpoint = (idx === 0) || (idx === shape.pts.length - 1);
+  if (action === 'remove' && !isEndpoint) {
     shape.pts.splice(idx, 1);
     sg_laserSelected = null;
   } else if (action === 'toggle' && idx < shape.pts.length - 1) {
@@ -7163,8 +7159,8 @@ var sg_dashScaleX   = 5.0;   // horizontal scale factor (500%)
 var sg_dashScaleY   = 5.0;   // vertical scale factor (500%)
 var sg_eyeLevel     = 0.46;  // eye level position: 0.0=top … 1.0=bottom of scoring field
 // Real-time per-score user calibration table for the Distance laser.
-// Keyed by score (1..15); each value is { T, L, Size } in [0..1].
-// Populated by the T/L/Size steppers in the calibration popover and merged
+// Keyed by score (1..15); each value is { T, Size } in [0..1].
+// Populated by the T/Size steppers in the calibration popover and merged
 // with the default SG_DISTANCE_CALIB by sg_buildMergedCalib so the
 // perspective effect builds up as the user calibrates each score from 15
 // down to 1. The "Copy distance mapping" button dumps the merged table
@@ -7177,9 +7173,9 @@ var sg_distanceUserCalib = {};
 var sg_distanceLiveT = null;
 
 // Calibration popover compact mode: when false the box shows only Score
-// and the textual landmark; when true it also exposes T / L / Size
+// and the textual landmark; when true it also exposes T / Size
 // stepper rows for fine calibration. Toggled from the SG dashboard
-// dropdown ("Show T / L / Size on score box").
+// dropdown ("Show T / Size on score box").
 var sg_distanceShowTLS = false;
 
 // Laser-shape editor switch (dropdown checkbox "Edit laser shape").
@@ -7223,21 +7219,21 @@ var SG_DISTANCE_SCORE_YN = {
 // and "Copy distance mapping" button — landmark anchors:
 //   score 15 ≈ yN 0.00 (over windshield)  …  score 1 ≈ yN 1.00 (behind listener)
 var SG_DISTANCE_CALIB = [
-  { yN: 0.000, T: 0.473, L: 0.26, Size: 0.19 },  // score 15 — over windshield
-  { yN: 0.150, T: 0.580, L: 0.50, Size: 0.24 },  // score 14 — top of windshield
-  { yN: 0.240, T: 0.671, L: 0.70, Size: 0.29 },  // score 13 — windshield
-  { yN: 0.320, T: 0.706, L: 0.88, Size: 0.39 },  // score 12 — dashboard → windshield
-  { yN: 0.390, T: 0.728, L: 0.76, Size: 0.36 },  // score 11 — dashboard → windshield
-  { yN: 0.460, T: 0.765, L: 1.00, Size: 0.39 },  // score 10 — dashboard → windshield
-  { yN: 0.540, T: 0.789, L: 1.00, Size: 0.48 },  // score 9 — dashboard
-  { yN: 0.600, T: 0.813, L: 1.00, Size: 0.53 },  // score 8 — wheel → dashboard
-  { yN: 0.680, T: 0.837, L: 1.00, Size: 0.59 },  // score 7 — wheel → dashboard
-  { yN: 0.760, T: 0.867, L: 1.00, Size: 0.63 },  // score 6 — steering wheel
-  { yN: 0.820, T: 0.887, L: 1.00, Size: 0.67 },  // score 5 — wheel → body
-  { yN: 0.870, T: 0.925, L: 0.99, Size: 0.71 },  // score 4 — wheel → body
-  { yN: 0.920, T: 1.005, L: 0.99, Size: 0.82 },  // score 3 — face / chest
-  { yN: 0.970, T: 1.075, L: 1.00, Size: 0.91 },  // score 2 — head / body
-  { yN: 1.000, T: 1.085, L: 1.00, Size: 1.00 }   // score 1 — behind listener
+  { yN: 0.000, T: 0.473, Size: 0.19 },  // score 15 — over windshield
+  { yN: 0.150, T: 0.580, Size: 0.24 },  // score 14 — top of windshield
+  { yN: 0.240, T: 0.671, Size: 0.29 },  // score 13 — windshield
+  { yN: 0.320, T: 0.706, Size: 0.39 },  // score 12 — dashboard → windshield
+  { yN: 0.390, T: 0.728, Size: 0.36 },  // score 11 — dashboard → windshield
+  { yN: 0.460, T: 0.765, Size: 0.39 },  // score 10 — dashboard → windshield
+  { yN: 0.540, T: 0.789, Size: 0.48 },  // score 9 — dashboard
+  { yN: 0.600, T: 0.813, Size: 0.53 },  // score 8 — wheel → dashboard
+  { yN: 0.680, T: 0.837, Size: 0.59 },  // score 7 — wheel → dashboard
+  { yN: 0.760, T: 0.867, Size: 0.63 },  // score 6 — steering wheel
+  { yN: 0.820, T: 0.887, Size: 0.67 },  // score 5 — wheel → body
+  { yN: 0.870, T: 0.925, Size: 0.71 },  // score 4 — wheel → body
+  { yN: 0.920, T: 1.005, Size: 0.82 },  // score 3 — face / chest
+  { yN: 0.970, T: 1.075, Size: 0.91 },  // score 2 — head / body
+  { yN: 1.000, T: 1.085, Size: 1.00 }   // score 1 — behind listener
 ];
 
 // Build the merged calibration list: default SG_DISTANCE_CALIB overlaid by
@@ -7248,7 +7244,7 @@ var SG_DISTANCE_CALIB = [
 function sg_buildMergedCalib() {
   var byKey = {};
   SG_DISTANCE_CALIB.forEach(function(c) {
-    byKey[c.yN.toFixed(4)] = { yN: c.yN, T: c.T, L: c.L, Size: c.Size };
+    byKey[c.yN.toFixed(4)] = { yN: c.yN, T: c.T, Size: c.Size };
   });
   Object.keys(sg_distanceUserCalib).forEach(function(scKey) {
     var sc = parseInt(scKey, 10);
@@ -7259,10 +7255,9 @@ function sg_buildMergedCalib() {
     var key = yN.toFixed(4);
     if (byKey[key]) {
       byKey[key].T    = u.T;
-      byKey[key].L    = u.L;
       byKey[key].Size = u.Size;
     } else {
-      byKey[key] = { yN: yN, T: u.T, L: u.L, Size: u.Size };
+      byKey[key] = { yN: yN, T: u.T, Size: u.Size };
     }
   });
   var list = Object.keys(byKey).map(function(k) { return byKey[k]; });
@@ -7288,7 +7283,6 @@ function sg_distanceMappingToString() {
     lines.push(
       '  { yN: ' + c.yN.toFixed(3) +
       ', T: '    + c.T.toFixed(3) +
-      ', L: '    + c.L.toFixed(2) +
       ', Size: ' + c.Size.toFixed(2) +
       ' }' + comma + comment
     );
@@ -7388,7 +7382,7 @@ function sg_distanceAutoFromYN(yN) {
   var y = Math.max(0, Math.min(1, yN));
   var calib = sg_buildMergedCalib();
   if (y <= calib[0].yN) {
-    var f = calib[0]; return { T: f.T, L: f.L, Size: f.Size };
+    var f = calib[0]; return { T: f.T, Size: f.Size };
   }
   for (var i = 1; i < calib.length; i++) {
     var a = calib[i - 1], b = calib[i];
@@ -7396,13 +7390,12 @@ function sg_distanceAutoFromYN(yN) {
       var k = (b.yN > a.yN) ? (y - a.yN) / (b.yN - a.yN) : 0;
       return {
         T:    a.T    + (b.T    - a.T   ) * k,
-        L:    a.L    + (b.L    - a.L   ) * k,
         Size: a.Size + (b.Size - a.Size) * k
       };
     }
   }
   var l = calib[calib.length - 1];
-  return { T: l.T, L: l.L, Size: l.Size };
+  return { T: l.T, Size: l.Size };
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -7423,17 +7416,20 @@ function sg_distanceAutoFromYN(yN) {
 // to cubic Bezier for canvas rendering) so the line bends naturally
 // through each waypoint instead of breaking at sharp angles.
 // ─────────────────────────────────────────────────────────────────────────
-var SG_LASER_SHAPEABLE_MIN = 4;
-var SG_LASER_SHAPEABLE_MAX = 13;
+var SG_LASER_SHAPEABLE_MIN = 1;
+var SG_LASER_SHAPEABLE_MAX = 15;
 function sg_laserShapeable(score) {
   return score != null && score >= SG_LASER_SHAPEABLE_MIN && score <= SG_LASER_SHAPEABLE_MAX;
 }
-function sg_defaultLaserShape() {
-  // Two fixed endpoints, no Y offset → identical to the original straight line.
+function sg_defaultLaserShape(score) {
+  // Two image-anchored endpoints, no Y offset → straight line whose
+  // bounds match the per-score baked defaults. Score is optional; when
+  // omitted we fall back to the universal endpoint xImg (full width).
+  var ep = sg_defaultEndpointXImg(score);
   return {
     pts: [
-      { xN: -0.5, dyN: 0, visibleAfter: true,  fixed: true },
-      { xN: +0.5, dyN: 0, visibleAfter: true,  fixed: true }
+      { xImg: ep.left,  dyImg: 0, visibleAfter: true, fixed: false },
+      { xImg: ep.right, dyImg: 0, visibleAfter: true, fixed: false }
     ]
   };
 }
@@ -7450,17 +7446,29 @@ function sg_defaultLaserShape() {
 //                 image at zoom changes; auto-migrated on first render)
 //   y: { dyImg } — fraction of dashboard PNG height (PREFERRED)
 //      { dyN }   — fraction of scoring-field height (LEGACY)
-// Endpoints (first + last) MUST stay xN: ±0.5 — they anchor the laser's
-// visible bounds (lenFrac per score) which is NOT an image feature.
+// Endpoints are now image-anchored (xImg) — first/last waypoint xImg drive
+// the laser's visible bounds (planeL/planeR) directly. The legacy `L`
+// parameter (per-score length fraction) is gone; to widen/narrow the laser
+// at a given score, drag the two endpoint waypoints. Endpoint xImg below
+// were baked from the previous L * MIG values:
+//   epLeft  = 0.5 - 0.5 * L * 0.7725
+//   epRight = 1.0 - epLeft
 var SG_LASER_SHAPES = {
-  6: { pts: [ { xN: -0.500, dyN: -0.035, visibleAfter: true }, { xN: -0.425, dyN: -0.049, visibleAfter: true }, { xN: -0.376, dyN: -0.131, visibleAfter: true }, { xN: -0.328, dyN: -0.180, visibleAfter: true }, { xN: -0.269, dyN: -0.192, visibleAfter: true }, { xN: -0.214, dyN: -0.146, visibleAfter: true }, { xN: -0.167, dyN: -0.065, visibleAfter: true }, { xN: -0.131, dyN: -0.014, visibleAfter: true }, { xN: 0.011, dyN: -0.008, visibleAfter: true }, { xN: 0.500, dyN: 0.000, visibleAfter: true } ] },  // steering wheel
-  7: { pts: [ { xN: -0.500, dyN: 0.000, visibleAfter: true }, { xN: -0.431, dyN: -0.001, visibleAfter: false }, { xN: -0.401, dyN: -0.000, visibleAfter: true }, { xN: -0.177, dyN: 0.002, visibleAfter: false }, { xN: -0.144, dyN: -0.002, visibleAfter: true }, { xN: 0.500, dyN: 0.000, visibleAfter: true } ] },  // wheel → dashboard
-  8: { pts: [ { xN: -0.500, dyN: 0.000, visibleAfter: true }, { xN: -0.427, dyN: -0.003, visibleAfter: false }, { xN: -0.396, dyN: -0.000, visibleAfter: true }, { xN: -0.184, dyN: -0.000, visibleAfter: false }, { xN: -0.154, dyN: -0.002, visibleAfter: true }, { xN: 0.500, dyN: 0.000, visibleAfter: true } ] },  // wheel → dashboard
-  9: { pts: [ { xN: -0.500, dyN: 0.000, visibleAfter: true }, { xN: -0.421, dyN: -0.000, visibleAfter: false }, { xN: -0.386, dyN: -0.002, visibleAfter: true }, { xN: -0.189, dyN: 0.002, visibleAfter: false }, { xN: -0.158, dyN: 0.004, visibleAfter: true }, { xN: 0.500, dyN: 0.000, visibleAfter: true } ] },  // dashboard
-  10: { pts: [ { xN: -0.500, dyN: -0.008, visibleAfter: true }, { xN: -0.421, dyN: -0.004, visibleAfter: true }, { xN: -0.362, dyN: -0.079, visibleAfter: false }, { xN: -0.204, dyN: -0.080, visibleAfter: true }, { xN: -0.019, dyN: -0.004, visibleAfter: true }, { xN: 0.500, dyN: 0.000, visibleAfter: true } ] },  // dashboard → windshield
-  11: { pts: [ { xN: -0.500, dyN: 0.000, visibleAfter: false }, { xN: -0.080, dyN: 0.005, visibleAfter: true }, { xN: 0.500, dyN: 0.000, visibleAfter: true } ] },  // dashboard → windshield
-  12: { pts: [ { xN: -0.500, dyN: 0.000, visibleAfter: false }, { xN: -0.130, dyN: -0.019, visibleAfter: true }, { xN: 0.146, dyN: -0.014, visibleAfter: true }, { xN: 0.500, dyN: 0.030, visibleAfter: true } ] },  // dashboard → windshield
-  13: { pts: [ { xN: -0.500, dyN: 0.000, visibleAfter: false }, { xN: -0.152, dyN: -0.004, visibleAfter: true }, { xN: 0.500, dyN: 0.000, visibleAfter: true } ] }   // windshield
+  1:  { pts: [ { xImg: 0.114, dyImg: 0.000, visibleAfter: true }, { xImg: 0.886, dyImg: 0.000, visibleAfter: true } ] },  // behind listener
+  2:  { pts: [ { xImg: 0.114, dyImg: 0.000, visibleAfter: true }, { xImg: 0.886, dyImg: 0.000, visibleAfter: true } ] },  // head / body
+  3:  { pts: [ { xImg: 0.118, dyImg: 0.000, visibleAfter: true }, { xImg: 0.882, dyImg: 0.000, visibleAfter: true } ] },  // face / chest
+  4:  { pts: [ { xImg: 0.118, dyImg: 0.000, visibleAfter: true }, { xImg: 0.882, dyImg: 0.000, visibleAfter: true } ] },  // wheel → body
+  5:  { pts: [ { xImg: 0.114, dyImg: 0.000, visibleAfter: true }, { xImg: 0.886, dyImg: 0.000, visibleAfter: true } ] },  // wheel → body
+  6:  { pts: [ { xImg: 0.114, dyN: -0.035, visibleAfter: true }, { xN: -0.425, dyN: -0.049, visibleAfter: true }, { xN: -0.376, dyN: -0.131, visibleAfter: true }, { xN: -0.328, dyN: -0.180, visibleAfter: true }, { xN: -0.269, dyN: -0.192, visibleAfter: true }, { xN: -0.214, dyN: -0.146, visibleAfter: true }, { xN: -0.167, dyN: -0.065, visibleAfter: true }, { xN: -0.131, dyN: -0.014, visibleAfter: true }, { xN: 0.011, dyN: -0.008, visibleAfter: true }, { xImg: 0.886, dyN: 0.000, visibleAfter: true } ] },  // steering wheel
+  7:  { pts: [ { xImg: 0.114, dyN: 0.000, visibleAfter: true }, { xN: -0.431, dyN: -0.001, visibleAfter: false }, { xN: -0.401, dyN: 0.000, visibleAfter: true }, { xN: -0.177, dyN: 0.002, visibleAfter: false }, { xN: -0.144, dyN: -0.002, visibleAfter: true }, { xImg: 0.886, dyN: 0.000, visibleAfter: true } ] },  // wheel → dashboard
+  8:  { pts: [ { xImg: 0.114, dyN: 0.000, visibleAfter: true }, { xN: -0.427, dyN: -0.003, visibleAfter: false }, { xN: -0.396, dyN: 0.000, visibleAfter: true }, { xN: -0.184, dyN: 0.000, visibleAfter: false }, { xN: -0.154, dyN: -0.002, visibleAfter: true }, { xImg: 0.886, dyN: 0.000, visibleAfter: true } ] },  // wheel → dashboard
+  9:  { pts: [ { xImg: 0.114, dyN: 0.000, visibleAfter: true }, { xN: -0.421, dyN: 0.000, visibleAfter: false }, { xN: -0.386, dyN: -0.002, visibleAfter: true }, { xN: -0.189, dyN: 0.002, visibleAfter: false }, { xN: -0.158, dyN: 0.004, visibleAfter: true }, { xImg: 0.886, dyN: 0.000, visibleAfter: true } ] },  // dashboard
+  10: { pts: [ { xImg: 0.114, dyImg: -0.000, visibleAfter: true }, { xImg: 0.175, dyImg: -0.002, visibleAfter: true }, { xImg: 0.220, dyImg: -0.032, visibleAfter: false }, { xImg: 0.342, dyImg: -0.032, visibleAfter: true }, { xImg: 0.485, dyImg: -0.002, visibleAfter: true }, { xImg: 0.886, dyImg: 0.000, visibleAfter: true } ] },  // dashboard → windshield
+  11: { pts: [ { xImg: 0.207, dyN: 0.000, visibleAfter: false }, { xN: -0.080, dyN: 0.005, visibleAfter: true }, { xImg: 0.793, dyN: 0.000, visibleAfter: true } ] },  // dashboard → windshield
+  12: { pts: [ { xImg: 0.160, dyN: 0.000, visibleAfter: false }, { xN: -0.130, dyN: -0.019, visibleAfter: true }, { xN: 0.146, dyN: -0.014, visibleAfter: true }, { xImg: 0.840, dyN: 0.030, visibleAfter: true } ] },  // dashboard → windshield
+  13: { pts: [ { xImg: 0.230, dyN: 0.000, visibleAfter: false }, { xN: -0.152, dyN: -0.004, visibleAfter: true }, { xImg: 0.770, dyN: 0.000, visibleAfter: true } ] },  // windshield
+  14: { pts: [ { xImg: 0.307, dyImg: 0.000, visibleAfter: true }, { xImg: 0.693, dyImg: 0.000, visibleAfter: true } ] },  // top of windshield
+  15: { pts: [ { xImg: 0.400, dyImg: 0.000, visibleAfter: true }, { xImg: 0.600, dyImg: 0.000, visibleAfter: true } ] }   // over windshield
 };
 
 // Hardcoded plane-mask defaults baked into this build. Each entry is a
@@ -7714,19 +7722,14 @@ function sg_assignLaserDeviation(pt, dev) {
     delete pt.dyImg;
   }
 }
-// Compute the canvas-x for a laser-shape point. Endpoints (fixed) are
-// snapped to the laser's visible bounds (planeL/planeR) — they carry
-// the semantics of "start/end of visible beam" and must NOT track image
-// features (lenFrac per score sets that bound). All other points are
-// stored as xImg (fraction of dashboard PNG width) so they stay glued
-// to the cockpit drawing at any zoom. Legacy points carrying xN are
-// migrated in place once the dashboard rect is known.
+// Compute the canvas-x for a laser-shape point. All points (including
+// endpoints) are image-anchored as xImg (fraction of dashboard PNG
+// width) so they stay glued to the cockpit drawing at any zoom.
+// Legacy points carrying xN are migrated in place once the dashboard
+// rect is known.
 function sg_laserPointCanvasX(pt, planeL, planeR, dashRect) {
   if (!pt) return planeL;
   var laserLen = planeR - planeL;
-  if (pt.fixed) {
-    return (pt.xN <= 0) ? planeL : planeR;
-  }
   if (isFinite(+pt.xImg)) {
     if (dashRect && dashRect.drawW > 0) return dashRect.drawX + pt.xImg * dashRect.drawW;
     return planeL + (pt.xImg) * laserLen;   // approximate fallback
@@ -7757,11 +7760,6 @@ function sg_laserCanvasXToCoord(canvasX, planeL, planeR, dashRect) {
 // drag clamp logic that needs to compare image-relative bounds against
 // neighbour points without mutating them.
 function sg_laserPointXImg(pt, planeL, planeR, dashRect) {
-  if (pt.fixed) {
-    if (!dashRect || dashRect.drawW <= 0) return pt.xN <= 0 ? -0.5 : 1.5;
-    var endX = (pt.xN <= 0) ? planeL : planeR;
-    return (endX - dashRect.drawX) / dashRect.drawW;
-  }
   if (isFinite(+pt.xImg)) return +pt.xImg;
   if (isFinite(+pt.xN) && dashRect && dashRect.drawW > 0) {
     var cx = planeL + (pt.xN + 0.5) * (planeR - planeL);
@@ -7769,11 +7767,14 @@ function sg_laserPointXImg(pt, planeL, planeR, dashRect) {
   }
   return 0.5;
 }
-// Deep-clone a shape and force the endpoints back to ±0.5 with fixed:true
-// so a tampered defaults block can't break the renderer's invariants.
+// Deep-clone a shape preserving the per-point storage format.
+// Endpoints (first/last) are now image-anchored (xImg) just like every
+// other waypoint — the laser's visible bounds (planeL/planeR) come from
+// their xImg positions directly, so they can be dragged to widen/narrow
+// the beam at any score.
 function sg_cloneLaserShape(src) {
   if (!src || !Array.isArray(src.pts) || src.pts.length < 2) return null;
-  var pts = src.pts.map(function(p, i) {
+  var pts = src.pts.map(function(p) {
     var out = {
       visibleAfter: p.visibleAfter !== false,
       fixed: false
@@ -7794,11 +7795,6 @@ function sg_cloneLaserShape(src) {
     }
     return out;
   });
-  // Endpoints always stay anchored to the laser's visible bounds (NOT
-  // to image features) so lenFrac per score still controls how wide
-  // the beam is. Force xN = ±0.5 and strip any stored xImg.
-  pts[0].xN = -0.5; pts[0].fixed = true; delete pts[0].xImg;
-  pts[pts.length - 1].xN = +0.5; pts[pts.length - 1].fixed = true; delete pts[pts.length - 1].xImg;
   return { pts: pts };
 }
 function sg_getLaserShape(score, createIfMissing) {
@@ -7818,7 +7814,7 @@ function sg_getLaserShape(score, createIfMissing) {
         return cloned;
       }
     } else if (createIfMissing) {
-      s = sg_laserShapes[score] = sg_defaultLaserShape();
+      s = sg_laserShapes[score] = sg_defaultLaserShape(score);
     }
   }
   return s || null;
@@ -7959,19 +7955,19 @@ function sg_resolveLaserAtScore(score, vL, vR, vC, sT, sH, horizonY, travel) {
   if (yN == null) return null;
   var auto = sg_distanceAutoFromYN(yN);
   var lineY = horizonY + travel * auto.T;
-  var lenFrac = Math.max(0, Math.min(1, auto.L));
   var resolveDashRect = sg_dashboardImageRect(vC, sT, sT + sH);
-  var halfLen = sg_laserHalfLen(lenFrac, vL, vR, resolveDashRect);
-  var planeL = vC - halfLen;
-  var planeR = vC + halfLen;
+  var bounds = sg_laserPlaneBounds(score, vC, vL, vR, resolveDashRect);
+  var planeL = bounds.L;
+  var planeR = bounds.R;
   var shape = sg_getLaserShape(score, false);
   var pts;
   if (shape && shape.pts && shape.pts.length >= 2) {
     pts = shape.pts;
   } else {
+    var defEp = sg_defaultEndpointXImg(score);
     pts = [
-      { xN: -0.5, dyN: 0, visibleAfter: true,  fixed: true },
-      { xN: +0.5, dyN: 0, visibleAfter: true,  fixed: true }
+      { xImg: defEp.left,  dyImg: 0, visibleAfter: true },
+      { xImg: defEp.right, dyImg: 0, visibleAfter: true }
     ];
   }
   var dashRect = sg_dashboardImageRect(vC, sT, sT + sH);
@@ -8633,19 +8629,20 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
     // laser so the active marker line still reads on top.
     sg_drawWindshieldPlane(ctx, W, H, vL, vR, vC, sT, sB, d, horizonY, travel, yN);
 
-    // T (laser depth) and L (line length frac) come from the merged
-    // calibration (default + per-score user calib). During an active line
-    // drag, sg_distanceLiveT temporarily overrides T so the line follows
-    // the pointer pixel-perfect; the value gets committed into the user
-    // calib on pointer-up.
+    // T (laser depth) comes from the merged calibration (default +
+    // per-score user calib). During an active line drag, sg_distanceLiveT
+    // temporarily overrides T so the line follows the pointer pixel-
+    // perfect; the value gets committed into the user calib on pointer-up.
+    // The laser's horizontal bounds (planeL/planeR) come straight from
+    // the active shape's first/last waypoint xImg — drag those endpoints
+    // to widen/narrow the beam at any score.
     var lineT = (sg_distanceLiveT != null) ? sg_distanceLiveT : auto.T;
     var lineY = horizonY + travel * lineT;
     var lineTClamped = Math.max(0, Math.min(1, lineT));
-    var lenFrac = Math.max(0, Math.min(1, auto.L));
     var liveDashRect = sg_dashboardImageRect(vC, sT, sB);
-    var halfLen = sg_laserHalfLen(lenFrac, vL, vR, liveDashRect);
-    var planeL   = vC - halfLen;
-    var planeR   = vC + halfLen;
+    var liveBounds = sg_laserPlaneBounds(score, vC, vL, vR, liveDashRect);
+    var planeL   = liveBounds.L;
+    var planeR   = liveBounds.R;
     var coreA    = 0.30 + 0.45 * lineTClamped;
 
     var g = ctx.createLinearGradient(planeL, 0, planeR, 0);
@@ -8665,10 +8662,11 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
     if (shape && shape.pts && shape.pts.length >= 2) {
       shapePts = shape.pts;
     } else {
-      // Default flat line shape (matches the original behaviour exactly).
+      // Default flat line shape with image-anchored endpoints (per score).
+      var defEp = sg_defaultEndpointXImg(score);
       shapePts = [
-        { xN: -0.5, dyN: 0, visibleAfter: true,  fixed: true },
-        { xN: +0.5, dyN: 0, visibleAfter: true,  fixed: true }
+        { xImg: defEp.left,  dyImg: 0, visibleAfter: true },
+        { xImg: defEp.right, dyImg: 0, visibleAfter: true }
       ];
     }
     var laserDashRect = sg_dashboardImageRect(vC, sT, sB);
@@ -8749,9 +8747,10 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
           ctx.arc(pp.x, pp.y, hitR + 5*d, 0, Math.PI * 2);
           ctx.fill();
         }
+        var isEndpoint = (pi === 0) || (pi === shapePts.length - 1);
         var fillCol = isActive
           ? 'rgba(255,220,120,.95)'
-          : (isSelected ? 'rgba(255,220,120,.95)' : (ptp.fixed ? 'rgba(0,229,204,.55)' : 'rgba(0,229,204,.95)'));
+          : (isSelected ? 'rgba(255,220,120,.95)' : (isEndpoint ? 'rgba(0,229,204,.55)' : 'rgba(0,229,204,.95)'));
         ctx.fillStyle = fillCol;
         ctx.strokeStyle = 'rgba(0,0,0,.85)';
         ctx.lineWidth = 1.2 * d;
@@ -8778,7 +8777,7 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
           var selPx = laserPx(selPt);
           var btnH  = 26*d, gap = 6*d, padX = 9*d;
           ctx.font = 'bold ' + (10*d) + 'px JetBrains Mono,monospace';
-          var canRemove = !selPt.fixed;
+          var canRemove = (selIdx !== 0) && (selIdx !== shapePts.length - 1);
           var canToggle = (selIdx < shapePts.length - 1);
           var visAfter  = (selPt.visibleAfter !== false);
           var lblRemove = canRemove ? '🗑 Remove'   : 'Endpoint';
@@ -8836,7 +8835,7 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
       horizonY: horizonY, travel: travel,
       markerY: my,
       sH: sH,
-      vC: vC, sT: sT, sB: sB,
+      vC: vC, vL: vL, vR: vR, sT: sT, sB: sB,
       score: score
     };
   }
@@ -8898,15 +8897,15 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
   ctx.beginPath(); ctx.arc(mx, my, radius, 0, Math.PI*2); ctx.stroke();
 
   // Score + description rendered BELOW the dot, follows the marker.
-  // The box also shows three ◀ value ▶ stepper rows for fine-tuning yN, T
-  // and L; clicks on the arrows are picked up by sg_onPD via the
-  // _sg_distance_arrows hit boxes saved here every frame.
+  // The box also shows two ◀ value ▶ stepper rows for fine-tuning T and
+  // Size; clicks on the arrows are picked up by sg_onPD via the
+  // _sg_distance_arrows hit boxes saved here every frame. Laser width
+  // is no longer set here — drag the two endpoint waypoints on the
+  // laser curve to widen/narrow the beam at any score.
   var scoreText = score + ' / 15';
   var descText  = label || '';
   var curT_     = (typeof lineT !== 'undefined' && !isNaN(lineT)) ? lineT : null;
-  var curL_     = Math.max(0, Math.min(1, auto.L));
   var TStr  = (curT_ == null) ? '—' : curT_.toFixed(3);
-  var LStr  = Math.round(curL_ * 100) + '%';
   var ScStr = String(score);                          // Score (0..15)
   var SzPct = Math.round(sizeT * 100);
   var SzStr = SzPct + '%';                            // Size (0..100%)
@@ -8926,7 +8925,7 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
   var padX = 10*d, padY = 6*d, lineH = 15*d, stepLineH = 18*d;
   var lines = 1 + (descText ? 1 : 0);
   var rw = Math.max(hdrRowW, w2, sg_distanceShowTLS ? stepRowW : 0) + padX*2;
-  var stepRowsCount = sg_distanceShowTLS ? 3 : 0;  // T / L / Size when enabled
+  var stepRowsCount = sg_distanceShowTLS ? 2 : 0;  // T / Size when enabled
   var rh = padY*2 + lineH*lines + stepLineH*stepRowsCount;
 
   // Place below the dot; flip above if it would clip the bottom
@@ -8953,7 +8952,7 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
   ctx.fillStyle = 'rgba(' + color + ',1)';
   ctx.fillText(scoreText, bx, hdrMidY);
   // ◀ ▶ around the score text. Use the stepper font so they look uniform
-  // with the T/L/Size arrows when those rows are visible.
+  // with the T/Size arrows when those rows are visible.
   var hdrDnCx = bx - w1/2 - gap - arrowW/2;
   var hdrUpCx = bx + w1/2 + gap + arrowW/2;
   ctx.font = 'bold ' + fStep + 'px JetBrains Mono,monospace';
@@ -8969,13 +8968,12 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
     ctx.fillText(descText, bx, cursorY - 3*d);
   }
 
-  // ── Stepper rows (T / L / Size) ──────────────────────────────────────────
+  // ── Stepper rows (T / Size) ──────────────────────────────────────────────
   // Score steppers are in the header above; arrow hit boxes are registered
   // here so sg_distanceArrowHitTest matches them via the same path used by
-  // the optional T / L / Size rows.
+  // the optional T / Size rows.
   _sg_distance_arrows = {
     T:     curT_,
-    L:     Math.round(curL_ * 100),
     Score: score,
     Size:  SzPct
   };
@@ -9000,7 +8998,7 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
     ctx.fillText('◀', dnCx, rowMidY + fStep*0.35);
     // value (highlighted in yellow when this score has a user calib entry)
     var userEntry = (typeof score !== 'undefined') ? sg_distanceUserCalib[score] : null;
-    var hasOverride = !!userEntry && (name === 'T' || name === 'L' || name === 'Size');
+    var hasOverride = !!userEntry && (name === 'T' || name === 'Size');
     ctx.fillStyle = hasOverride ? 'rgba(255,220,120,.95)' : 'rgba(255,255,255,.92)';
     ctx.fillText(valueTxt, valCx, rowMidY + fStep*0.35);
     // ▶
@@ -9013,7 +9011,6 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
   }
   if (sg_distanceShowTLS) {
     drawStepRow('T',    'T',    TStr);
-    drawStepRow('L',    'L',    LStr);
     drawStepRow('Size', 'Size', SzStr);
   }
 
@@ -9039,27 +9036,66 @@ function sg_dashboardImageRect(vC, sT, sB) {
   return { drawX: drawX, drawY: drawY, drawW: drawW, drawH: drawH };
 }
 
-// ── Laser visible-length MIG ─────────────────────────────────────────
-// MIG = (vR − vL) / drawW captured once on the canonical setup
-// (browser at zoom 67% on the reference tablet — the SG_LASER_SHAPES
-// authoring zoom) and baked here as a constant so the laser endpoints
-// (xN = ±0.5) ride a fixed image fraction at any later zoom on any
-// device:
-//     halfLen = drawW * 0.5 * lenFrac * MIG
-// Update this constant if the SG_LASER_SHAPES literal is re-authored
-// at a different canonical setup. lenFrac in CALIB stays unchanged.
-var SG_LASER_LEN_MIG = 0.7725;
-function sg_laserHalfLen(lenFrac, vL, vR, dashRect) {
-  if (!dashRect || dashRect.drawW <= 0) {
-    return (vR - vL) * 0.5 * lenFrac;
+// ── Laser plane bounds ───────────────────────────────────────────────
+// The laser's visible bounds (planeL/planeR) come straight from the
+// shape's first and last waypoint xImg positions — the legacy `L`
+// (per-score length fraction) parameter is gone. To widen/narrow the
+// laser at a given score, drag the two endpoint waypoints.
+function sg_defaultEndpointXImg(score) {
+  var def = SG_LASER_SHAPES[score];
+  if (def && def.pts && def.pts.length >= 2) {
+    var first = def.pts[0];
+    var last  = def.pts[def.pts.length - 1];
+    if (isFinite(+first.xImg) && isFinite(+last.xImg)) {
+      return { left: +first.xImg, right: +last.xImg };
+    }
   }
-  return dashRect.drawW * 0.5 * lenFrac * SG_LASER_LEN_MIG;
+  return { left: 0.114, right: 0.886 };
+}
+function sg_laserPlaneBounds(score, vC, vL, vR, dashRect) {
+  var shape = sg_getLaserShape(score, false);
+  if (shape && shape.pts && shape.pts.length >= 2 && dashRect && dashRect.drawW > 0) {
+    var first = shape.pts[0];
+    var last  = shape.pts[shape.pts.length - 1];
+    var fxImg = isFinite(+first.xImg) ? +first.xImg : null;
+    var lxImg = isFinite(+last.xImg)  ? +last.xImg  : null;
+    // Lazy-migrate legacy xN endpoints to xImg using baked defaults.
+    if (fxImg == null || lxImg == null) {
+      var def = sg_defaultEndpointXImg(score);
+      if (fxImg == null) {
+        first.xImg = def.left; delete first.xN; delete first.fixed;
+        fxImg = def.left;
+      }
+      if (lxImg == null) {
+        last.xImg = def.right; delete last.xN; delete last.fixed;
+        lxImg = def.right;
+      }
+    }
+    return {
+      L: dashRect.drawX + fxImg * dashRect.drawW,
+      R: dashRect.drawX + lxImg * dashRect.drawW
+    };
+  }
+  var defB = sg_defaultEndpointXImg(score);
+  if (dashRect && dashRect.drawW > 0) {
+    return {
+      L: dashRect.drawX + defB.left  * dashRect.drawW,
+      R: dashRect.drawX + defB.right * dashRect.drawW
+    };
+  }
+  var halfLen = (vR - vL) * 0.5 * (defB.right - defB.left);
+  return { L: vC - halfLen, R: vC + halfLen };
 }
 
+// MIG = (vR − vL) / drawW captured once on the canonical authoring
+// setup (browser at zoom 67% on the reference tablet). Used by
+// sg_imageHalfWidth to translate SG_WIDTH_ZONES fractions (authored as
+// fraction of canvas half-width) into a fixed fraction of the dashboard
+// PNG width at any later zoom on any device.
+var SG_LASER_LEN_MIG = 0.7725;
+
 // Half-width of an image-anchored fraction. Used for SG_WIDTH_ZONES
-// rendering / hit-test / drag — same MIG as the laser since both
-// translate "fraction of canvas half-width at authoring zoom" into a
-// fixed fraction of the dashboard PNG width at any later zoom.
+// rendering / hit-test / drag.
 function sg_imageHalfWidth(frac, vL, vR, dashRect) {
   if (!dashRect || dashRect.drawW <= 0) {
     return frac * (vR - vL) * 0.5;
