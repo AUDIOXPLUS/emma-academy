@@ -261,9 +261,9 @@ body.immersive #inst-picker,body.immersive #btn-add-wrap{opacity:0;pointer-event
 #page-login { display: flex; flex-direction: column; align-items: center; justify-content: center; background: #000; z-index: 10; }
 .login-box { background: rgba(28,28,36,.9); border: 1.5px solid rgba(255,255,255,.08); border-radius: 18px; padding: 32px 40px; width: 340px; box-sizing: border-box; text-align: center; margin-top: 24px; }
 .login-input { width: 100%; box-sizing: border-box; background: rgba(0,0,0,.5); border: 1px solid rgba(255,255,255,.15); border-radius: 8px; padding: 12px 14px; color: #e0e0e0; font-size: 14px; font-family: inherit; outline: none; transition: border-color .2s; }
-.login-input:focus { border-color: #50dc64; }
+.login-input:focus { border-color: #3cb4ff; }
 .login-btn-submit { margin-top: 14px; width: 100%; background: rgba(28,28,36,.9); border: 1.5px solid rgba(255,255,255,.08); border-radius: 12px; padding: 12px; color: #e0e0e0; font-size: 14px; font-weight: 600; letter-spacing: 1px; cursor: pointer; transition: all .2s; }
-.login-btn-submit:hover { border-color: #50dc64; background: rgba(40,40,52,.95); }
+.login-btn-submit:hover { border-color: #3cb4ff; background: rgba(40,40,52,.95); }
 .login-error { color: #ff5577; font-size: 12px; margin-top: 10px; min-height: 14px; letter-spacing: 0.5px; }
 #page-builder { display: none; z-index: 1; }
 #page-position { display: none; z-index: 1; }
@@ -924,7 +924,6 @@ body.immersive #inst-picker,body.immersive #btn-add-wrap{opacity:0;pointer-event
   <img id="login-emma-logo" class="landing-emma-logo" alt="EMMA">
   <div class="landing-logo">ACADEMY</div>
   <div class="landing-subtitle">Sound Quality Judge Tool</div>
-  <div class="landing-credit">... by Francesco Richichi</div>
   <div class="login-box">
     <form onsubmit="event.preventDefault(); emma_tryLogin();">
       <input type="password" id="login-pw" class="login-input" placeholder="Password" autocomplete="current-password" autofocus>
