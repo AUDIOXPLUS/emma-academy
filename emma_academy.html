@@ -483,6 +483,32 @@ body.immersive #inst-picker,body.immersive #btn-add-wrap{opacity:0;pointer-event
 
 #sc-immersive-btn { background: transparent; border: 1px solid rgba(255,255,255,.1); color: #888; border-radius: 8px; padding: 5px 10px; cursor: pointer; margin-left: auto; font-size: 16px; }
 #sc-immersive-btn:hover { color: #e0e0e0; }
+
+/* ===== ROTATE-TO-LANDSCAPE PROMPT (Position page, mobile portrait) ===== */
+#sc-rotate-prompt {
+  display: none;
+  position: fixed; inset: 0; z-index: 1000;
+  background: #000;
+  flex-direction: column; align-items: center; justify-content: center;
+  color: #e0e0e0; text-align: center; padding: 32px 24px;
+  font-family: 'JetBrains Mono','Fira Mono',monospace;
+}
+#sc-rotate-prompt-icon { font-size: 72px; margin-bottom: 28px; display: inline-block; transform-origin: center; animation: sc-rotate-hint 2.4s infinite ease-in-out; color: #50dc64; }
+#sc-rotate-prompt-title { font-size: 17px; font-weight: 700; margin-bottom: 12px; color: #50dc64; letter-spacing: 1.5px; text-transform: uppercase; }
+#sc-rotate-prompt-msg { font-size: 13px; color: #aaa; line-height: 1.6; max-width: 320px; }
+@keyframes sc-rotate-hint {
+  0%, 30% { transform: rotate(0deg); }
+  60%, 100% { transform: rotate(-90deg); }
+}
+@media (max-width: 900px) and (orientation: portrait) {
+  #page-position #sc-rotate-prompt { display: flex; }
+  #page-position #sc-cv,
+  #page-position #sc-topbar,
+  #page-position #sc-transport,
+  #page-position #sc-indicator,
+  #page-position #sc-tl-panel,
+  #page-position #sc-btn-scoresheet { visibility: hidden; }
+}
 </style>
 
 <!-- ===== TONAL ACCURACY MODULE CSS ===== -->
@@ -868,7 +894,7 @@ body.immersive #inst-picker,body.immersive #btn-add-wrap{opacity:0;pointer-event
 <div id="emma-instructor-bar"></div>
 <!-- Module credit (fixed bottom-right, hidden on landing) -->
 <div id="module-credit" class="module-credit" style="display:none">...By Francesco Richichi</div>
-<span class="emma-build-tag" title="Build identifier — short hash of the latest commit shipped on this branch">build:6b73ee5</span>
+<span class="emma-build-tag" title="Build identifier — short hash of the latest commit shipped on this branch">build:222714d</span>
 
 <!-- Help modal (shared across all modules) -->
 <div id="help-modal">
@@ -1298,6 +1324,13 @@ body.immersive #inst-picker,body.immersive #btn-add-wrap{opacity:0;pointer-event
     <div id="sc-indicator-track"></div>
     <div id="sc-indicator-inst">click open to select a project</div>
     <div id="sc-indicator-taps"></div>
+  </div>
+
+  <!-- Rotate-to-landscape prompt (mobile portrait only) -->
+  <div id="sc-rotate-prompt">
+    <div id="sc-rotate-prompt-icon">&#128241;</div>
+    <div id="sc-rotate-prompt-title">Ruota il dispositivo</div>
+    <div id="sc-rotate-prompt-msg">Il Position Score Simulator funziona meglio in modalit&agrave; orizzontale.<br>Ruota il telefono per continuare.</div>
   </div>
 
   <!-- Tracklist panel -->
@@ -5293,6 +5326,7 @@ function showPage(name) {
   } else if (name === 'position') {
     document.getElementById('page-position').style.display = 'block';
     sc_initIfNeeded();
+    sc_tryLockLandscape();
   } else if (name === 'focus') {
     document.getElementById('page-focus').style.display = 'block';
     fc_initIfNeeded();
@@ -9654,6 +9688,7 @@ function sc_initIfNeeded() {
   
   document.getElementById('sc-btn-back').addEventListener('click', function() {
     sc_pause();
+    sc_exitFullscreenIfActive();
     showPage('main');
   });
   document.getElementById('sc-btn-assign').addEventListener('click', function(){ sc_assignTracks(); });
@@ -9703,6 +9738,41 @@ function sc_resizeCanvas() {
   var rect = sc_canvas.getBoundingClientRect();
   sc_canvas.width = rect.width * dpr;
   sc_canvas.height = rect.height * dpr;
+}
+
+// Best-effort landscape lock for mobile portrait users.
+// Only Chromium-based Android supports orientation.lock(); iOS Safari and
+// Firefox ignore it silently. The CSS overlay #sc-rotate-prompt acts as the
+// fallback, asking the user to rotate manually.
+function sc_tryLockLandscape() {
+  var portrait = window.innerHeight > window.innerWidth;
+  var smallScreen = window.innerWidth < 900;
+  if (!portrait || !smallScreen) return;
+  var el = document.documentElement;
+  var rf = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen;
+  if (!rf) return;
+  try {
+    var p = rf.call(el);
+    if (p && typeof p.then === 'function') {
+      p.then(function() {
+        if (screen.orientation && screen.orientation.lock) {
+          screen.orientation.lock('landscape').catch(function() {});
+        }
+      }).catch(function() {});
+    } else if (screen.orientation && screen.orientation.lock) {
+      screen.orientation.lock('landscape').catch(function() {});
+    }
+  } catch (e) {}
+}
+
+function sc_exitFullscreenIfActive() {
+  if (document.fullscreenElement || document.webkitFullscreenElement) {
+    if (screen.orientation && screen.orientation.unlock) {
+      try { screen.orientation.unlock(); } catch (e) {}
+    }
+    var ef = document.exitFullscreen || document.webkitExitFullscreen;
+    if (ef) try { ef.call(document); } catch (e) {}
+  }
 }
 
 // =============================================
