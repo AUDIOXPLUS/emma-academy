@@ -9,7 +9,8 @@
       "*.bat",
       "create_slim_json.js",
       "extract_emma_data.js",
-      "README.txt"
+      "README.txt",
+      "CLAUDE.md"
     ],
     "cleanUrls": true,
     "headers": [
