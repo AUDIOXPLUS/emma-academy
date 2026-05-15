@@ -6888,39 +6888,6 @@ function sg_onPD(e) {
         }
       }
     }
-    // ── Place / re-place the line on the closest calibrated score ──────
-    // Every tap on the dashboard snaps the laser to the score whose
-    // calibrated yN is nearest to the click. We deliberately DON'T put
-    // the line under the pointer with a forced live-T: that would render
-    // the generic 2-point flat-line fallback (because non-canonical yN
-    // values have no calibrated shape). Snapping shows the actual baked
-    // shape for that score and the plane shadow grows from listener
-    // (score 1) up to it. The pointer-move drag handler (sg_onPM) still
-    // takes over once the user grabs the line and moves it.
-    if (!sg_state.distanceNoSound && !sg_laserEditMode && !sg_planeMaskEditMode) {
-      var _sgClickYN = sg_canvasYToNorm(p.y);
-      if (_sgClickYN != null) {
-        var _sgBestScore = null, _sgBestDelta = Infinity;
-        for (var _sgSc in SG_DISTANCE_SCORE_YN) {
-          var _sgScYN  = SG_DISTANCE_SCORE_YN[_sgSc];
-          var _sgDelta = Math.abs(_sgScYN - _sgClickYN);
-          if (_sgDelta < _sgBestDelta) {
-            _sgBestDelta = _sgDelta;
-            _sgBestScore = _sgSc;
-          }
-        }
-        if (_sgBestScore != null) {
-          sg_state.distanceY = SG_DISTANCE_SCORE_YN[_sgBestScore];
-          // Drop any prior live-T so the line falls back to its
-          // calibrated lineY for the snapped score (with the calibrated
-          // shape, not the generic flat-line default).
-          sg_distanceLiveT = null;
-          // Re-render so _sg_distance_line is populated for the line-hit
-          // check on the next line below.
-          sg_drawFrame(sg_curT);
-        }
-      }
-    }
     // ── Drag the laser line ─────────────────────────────────────────────
     // Accept the gesture only when the click lands on the line itself.
     // Line drag is a single-axis edit of the laser T at the CURRENT
