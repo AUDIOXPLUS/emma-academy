@@ -6161,13 +6161,15 @@ function sg_initIfNeeded() {
       sg_state.mode = 'ready';
       sg_state.currentPts = [];
       sg_state.distanceDragging = false;
-      // Every time we enter Distance mode, drop the marker on score 12
-      // (the bottom edge of the windshield plane — natural starting
-      // point for calibration). The per-score sg_distanceUserCalib
-      // entries persist across mode switches so previous calibration
-      // work is preserved.
+      // No initial marker on Distance-mode entry: the cockpit plane
+      // materialises only after the user clicks somewhere on the
+      // dashboard. The first tap snaps the line to the closest
+      // calibrated score (see sg_onPD spawn block) and the plane
+      // shadow grows from listener (score 1) up to it. The per-score
+      // sg_distanceUserCalib entries persist across mode switches so
+      // previous calibration work is preserved.
       if (entering) {
-        sg_state.distanceY = SG_DISTANCE_SCORE_YN[12];
+        sg_state.distanceY = null;
         sg_state.distanceNoSound = false;
         sg_distanceLiveT = null;
         sg_laserSelected = null;
@@ -6849,6 +6851,72 @@ function sg_onPD(e) {
         //    that branch is suppressed below in edit mode anyway.
         if (sg_laserSelected && sg_laserSelected.score === curScore) {
           sg_laserSelected = null;
+          sg_drawFrame(sg_curT);
+        }
+      }
+    }
+    // ── Place / re-place the line on the closest calibrated score ──────
+    // Every tap on the dashboard snaps the laser to the score whose
+    // calibrated yN is nearest to the click. We deliberately DON'T put
+    // the line under the pointer with a forced live-T: that would render
+    // the generic 2-point flat-line fallback (because non-canonical yN
+    // values have no calibrated shape). Snapping shows the actual baked
+    // shape for that score and the plane shadow grows from listener
+    // (score 1) up to it. The existing pointer-move drag handler still
+    // takes over once the user grabs the line and moves it.
+    if (!sg_state.distanceNoSound && !sg_laserEditMode && !sg_planeMaskEditMode) {
+      var _sgClickYN = sg_canvasYToNorm(p.y);
+      if (_sgClickYN != null) {
+        var _sgBestScore = null, _sgBestDelta = Infinity;
+        for (var _sgSc in SG_DISTANCE_SCORE_YN) {
+          var _sgScYN  = SG_DISTANCE_SCORE_YN[_sgSc];
+          var _sgDelta = Math.abs(_sgScYN - _sgClickYN);
+          if (_sgDelta < _sgBestDelta) {
+            _sgBestDelta = _sgDelta;
+            _sgBestScore = _sgSc;
+          }
+        }
+        if (_sgBestScore != null) {
+          sg_state.distanceY = SG_DISTANCE_SCORE_YN[_sgBestScore];
+          // Drop any prior live-T so the line falls back to its
+          // calibrated lineY for the snapped score (with the calibrated
+          // shape, not the generic flat-line default).
+          sg_distanceLiveT = null;
+          // Re-render so _sg_distance_line is populated for the line-hit
+          // check on the next line below.
+          sg_drawFrame(sg_curT);
+        }
+      }
+    }
+    // ── Place / re-place the line on the closest calibrated score ──────
+    // Every tap on the dashboard snaps the laser to the score whose
+    // calibrated yN is nearest to the click. We deliberately DON'T put
+    // the line under the pointer with a forced live-T: that would render
+    // the generic 2-point flat-line fallback (because non-canonical yN
+    // values have no calibrated shape). Snapping shows the actual baked
+    // shape for that score and the plane shadow grows from listener
+    // (score 1) up to it. The pointer-move drag handler (sg_onPM) still
+    // takes over once the user grabs the line and moves it.
+    if (!sg_state.distanceNoSound && !sg_laserEditMode && !sg_planeMaskEditMode) {
+      var _sgClickYN = sg_canvasYToNorm(p.y);
+      if (_sgClickYN != null) {
+        var _sgBestScore = null, _sgBestDelta = Infinity;
+        for (var _sgSc in SG_DISTANCE_SCORE_YN) {
+          var _sgScYN  = SG_DISTANCE_SCORE_YN[_sgSc];
+          var _sgDelta = Math.abs(_sgScYN - _sgClickYN);
+          if (_sgDelta < _sgBestDelta) {
+            _sgBestDelta = _sgDelta;
+            _sgBestScore = _sgSc;
+          }
+        }
+        if (_sgBestScore != null) {
+          sg_state.distanceY = SG_DISTANCE_SCORE_YN[_sgBestScore];
+          // Drop any prior live-T so the line falls back to its
+          // calibrated lineY for the snapped score (with the calibrated
+          // shape, not the generic flat-line default).
+          sg_distanceLiveT = null;
+          // Re-render so _sg_distance_line is populated for the line-hit
+          // check on the next line below.
           sg_drawFrame(sg_curT);
         }
       }
@@ -8143,7 +8211,14 @@ function sg_laserVisibleXRuns(screenPts, shapePts) {
 function sg_drawWindshieldPlane(ctx, W, H, vL, vR, vC, sT, sB, d, horizonY, travel, currentYN) {
   if (currentYN == null) return;
   var sH = sB - sT;
-  var anchorScore = 12;
+  // Anchor at score 1 ("punto zero" / listener side): the plane always
+  // grows in a single direction from there up to the clicked marker,
+  // instead of bidirectionally from the windshield base. The earlier
+  // score-12 anchor produced a strip that grew toward 15 OR toward 1
+  // depending on the marker side, which conflicted with the new
+  // click-to-place UX where any tap should yield "shadow from listener
+  // up to the tap".
+  var anchorScore = 1;
   var anchorYN = SG_DISTANCE_SCORE_YN[anchorScore];
   if (anchorYN == null) return;
   var deltaYN = currentYN - anchorYN;
@@ -8151,14 +8226,11 @@ function sg_drawWindshieldPlane(ctx, W, H, vL, vR, vC, sT, sB, d, horizonY, trav
   var markerScore = sg_yToDistanceScore(currentYN);
   if (markerScore == null) return;
 
-  // Build the ordered list of scores from anchor toward marker.
-  // Marker above 12 → ascending; below 12 → descending.
+  // Build the ordered list of scores from anchor (1) up to the marker.
+  // markerScore is always ≥ 1 = anchorScore so the chain only grows in
+  // the ascending direction (toward score 15).
   var scoreList = [];
-  if (markerScore > anchorScore) {
-    for (var sc = anchorScore; sc <= markerScore; sc++) scoreList.push(sc);
-  } else {
-    for (var sc = anchorScore; sc >= markerScore; sc--) scoreList.push(sc);
-  }
+  for (var sc = anchorScore; sc <= markerScore; sc++) scoreList.push(sc);
   if (scoreList.length < 2) return;
 
   ctx.save();
@@ -8727,6 +8799,26 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
     var floorY   = sB;
     var extra    = (floorY - horizonY) * 0.25;   // headroom past the floor
     var travel   = (floorY - horizonY) + extra;
+    // Re-anchor the laser/plane vertical reference to the dashboard
+    // image so adjusting Offset Y / Scale Y on the dashboard drags
+    // the lasers (and the cockpit plane bounded by them) along with
+    // the image. Without this, lasers stay glued to the scoring
+    // field while the image slides underneath, breaking per-score
+    // image-relative calibration.
+    // (150, 5.0, 5.0) are the SHIPPED defaults baked into
+    // sg_dashOffsetY / sg_dashScaleX / sg_dashScaleY (search for the
+    // var declarations above) — lasers were calibrated against the
+    // image at THESE settings, so this is the correct "default"
+    // baseline. Using (0, 1, 1) here would shift every laser off
+    // canvas the moment Stage Score Simulator opens.
+    var _sgDashRectNow = sg_dashboardImageRect(vC, sT, sB);
+    var _sgDashRectDef = sg_dashboardImageRectAt(vC, sT, sB, 150, 5.0, 5.0);
+    if (_sgDashRectNow && _sgDashRectDef && _sgDashRectDef.drawH > 0) {
+      var _sgImgScaleY  = _sgDashRectNow.drawH / _sgDashRectDef.drawH;
+      var _sgHorizonRel = (horizonY - _sgDashRectDef.drawY) / _sgDashRectDef.drawH;
+      horizonY = _sgDashRectNow.drawY + _sgHorizonRel * _sgDashRectNow.drawH;
+      travel   = travel * _sgImgScaleY;
+    }
 
     // Windshield plane overlay — quadrilateral whose bottom edge is the
     // laser curve at score 12 (windshield base) and whose top edge is
@@ -9128,19 +9220,22 @@ function sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d) {
 // All callers (the image draw, the plane masks, …) compute pixel positions
 // from {drawX, drawY, drawW, drawH} so anything anchored to the cockpit
 // image stays glued to the same image features at any zoom level.
-function sg_dashboardImageRect(vC, sT, sB) {
+function sg_dashboardImageRectAt(vC, sT, sB, offsetY, scaleX, scaleY) {
   if (!sg_dashImage || !sg_dashImage.complete) return null;
   var sH    = sB - sT;
   var imgAR = sg_dashImage.width / sg_dashImage.height;
   var baseH = sH * 0.5;
   var baseW = baseH * imgAR;
-  var drawW = baseW * sg_dashScaleX;
-  var drawH = baseH * sg_dashScaleY;
+  var drawW = baseW * scaleX;
+  var drawH = baseH * scaleY;
   var drawX = vC - drawW * 0.5;
-  var offsetFrac = sg_dashOffsetY / 500;          // legacy 100 → 0.20 of sH
+  var offsetFrac = offsetY / 500;
   var pivotY = sT + sH * 0.5 + sH * offsetFrac;
   var drawY  = pivotY - drawH * 0.5;
   return { drawX: drawX, drawY: drawY, drawW: drawW, drawH: drawH };
+}
+function sg_dashboardImageRect(vC, sT, sB) {
+  return sg_dashboardImageRectAt(vC, sT, sB, sg_dashOffsetY, sg_dashScaleX, sg_dashScaleY);
 }
 
 // ── Laser plane bounds ───────────────────────────────────────────────
