@@ -13,3 +13,6 @@ node_modules/
 
 # Logs
 *.log
+
+# Build artifacts (single-file standalone bundle, ~133 MB; GitHub rejects > 100 MB)
+emma_academy_standalone.html

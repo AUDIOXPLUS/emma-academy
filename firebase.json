@@ -9,6 +9,8 @@
       "*.bat",
       "create_slim_json.js",
       "extract_emma_data.js",
+      "build_standalone.js",
+      "emma_academy_standalone.html",
       "README.txt",
       "CLAUDE.md"
     ],

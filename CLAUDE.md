@@ -87,6 +87,33 @@ predates the Firebase setup and is still valid for clients who want to host
 the bundle on their own infrastructure (the `EMMA_ACADEMY_DEPLOY.rar` archive
 is the packaged distribution for that case).
 
+## Single-file standalone build
+
+For the case where the recipient wants **one file, double-click, no server,
+no extraction, no internet**, there is a build script that bakes everything
+(HTML + 3 JSON + 11 WAV + 4 TAP presets + logo) into a single self-contained
+HTML via `data:` URIs.
+
+```bash
+node build_standalone.js
+```
+
+Output: `emma_academy_standalone.html` (~133 MB) in the project root.
+
+- Audio stays **lossless WAV** (no re-encoding) — base64 inflates 67 MB → ~89 MB.
+- Opens with `file://` in any modern browser, OS-independent.
+- Initial parse takes ~5–10 s on a typical machine; that's the price of the size.
+
+The build script works by populating the existing `EMMA_EMBED_*` stub
+(lines around `5270`) and rewriting the few `fetch('audio/...' )` /
+`fetch(TA_PRESETS[i])` / `<img src="emma_logo.webp">` sites to read from
+inline `data:` URIs. The original `emma_academy.html` is untouched on disk —
+the standalone is written as a separate file.
+
+`emma_academy_standalone.html` is in [.gitignore](.gitignore) (over GitHub's
+100 MB hard limit) and excluded from Firebase Hosting (`firebase.json`).
+Re-build it locally whenever you need a fresh single-file bundle.
+
 ## Useful conventions in the codebase
 
 - The HTML carries a `build:<short-sha>` tag in each module's topbar. Several
