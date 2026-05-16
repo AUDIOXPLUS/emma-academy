@@ -894,7 +894,7 @@ body.immersive #inst-picker,body.immersive #btn-add-wrap{opacity:0;pointer-event
 <div id="emma-instructor-bar"></div>
 <!-- Module credit (fixed bottom-right, hidden on landing) -->
 <div id="module-credit" class="module-credit" style="display:none">...By Francesco Richichi</div>
-<span class="emma-build-tag" title="Build identifier — short hash of the latest commit shipped on this branch">build:222714d</span>
+<span class="emma-build-tag" title="Build identifier — short hash of the latest commit shipped on this branch">build:click-line</span>
 
 <!-- Help modal (shared across all modules) -->
 <div id="help-modal">
@@ -6855,37 +6855,67 @@ function sg_onPD(e) {
         }
       }
     }
-    // ── Place / re-place the line on the closest calibrated score ──────
-    // Every tap on the dashboard snaps the laser to the score whose
-    // calibrated yN is nearest to the click. We deliberately DON'T put
-    // the line under the pointer with a forced live-T: that would render
-    // the generic 2-point flat-line fallback (because non-canonical yN
-    // values have no calibrated shape). Snapping shows the actual baked
-    // shape for that score and the plane shadow grows from listener
-    // (score 1) up to it. The existing pointer-move drag handler still
-    // takes over once the user grabs the line and moves it.
+    // ── Place the line under the click + snap score to nearest calibrated ──
+    // The line is rendered exactly at the pointer Y by overriding T via
+    // sg_distanceLiveT, so the user sees "click → horizontal line under
+    // my finger" regardless of which calibrated scores happen to live
+    // near the click. distanceY is set to the canonical yN of the
+    // closest score (by lineY proximity) so the marker, score box and
+    // per-score laser shape all reflect that calibrated landmark; only
+    // the line's vertical position is free.
     if (!sg_state.distanceNoSound && !sg_laserEditMode && !sg_planeMaskEditMode) {
-      var _sgClickYN = sg_canvasYToNorm(p.y);
-      if (_sgClickYN != null) {
-        var _sgBestScore = null, _sgBestDelta = Infinity;
-        for (var _sgSc in SG_DISTANCE_SCORE_YN) {
-          var _sgScYN  = SG_DISTANCE_SCORE_YN[_sgSc];
-          var _sgDelta = Math.abs(_sgScYN - _sgClickYN);
-          if (_sgDelta < _sgBestDelta) {
-            _sgBestDelta = _sgDelta;
-            _sgBestScore = _sgSc;
-          }
+      // Recompute the same image-anchored horizonY/travel the renderer
+      // uses for the laser, so the live-T derived from p.y lands the
+      // line precisely under the pointer when sg_drawFrame redraws.
+      var _sgD  = window.devicePixelRatio || 1;
+      var _sgCH = sg_canvas.height;
+      var _sgCW = sg_canvas.width;
+      var _sgST = (44 + 18) * _sgD;
+      var _sgSB = _sgCH - (60 + 18) * _sgD;
+      var _sgSH = _sgSB - _sgST;
+      var _sgVL = 34 * _sgD, _sgVR = _sgCW - 34 * _sgD;
+      var _sgVC = (_sgVL + _sgVR) / 2;
+      var _sgHorizon = _sgST + _sgSH * sg_eyeLevel;
+      var _sgFloor   = _sgSB;
+      var _sgExtra   = (_sgFloor - _sgHorizon) * 0.25;
+      var _sgTravel  = (_sgFloor - _sgHorizon) + _sgExtra;
+      var _sgDR  = sg_dashboardImageRect(_sgVC, _sgST, _sgSB);
+      var _sgDRD = sg_dashboardImageRectAt(_sgVC, _sgST, _sgSB, 150, 5.0, 5.0);
+      if (_sgDR && _sgDRD && _sgDRD.drawH > 0) {
+        var _sgImgScY = _sgDR.drawH / _sgDRD.drawH;
+        var _sgHRel   = (_sgHorizon - _sgDRD.drawY) / _sgDRD.drawH;
+        _sgHorizon = _sgDR.drawY + _sgHRel * _sgDR.drawH;
+        _sgTravel  = _sgTravel * _sgImgScY;
+      }
+      // Snap score (and so marker + shape) to whichever calibrated
+      // landmark is nearest in screen pixels. lineY proximity (not yN)
+      // means an off-canvas calibration (T > 1) never wins.
+      var _sgBestScore = null, _sgBestDelta = Infinity;
+      for (var _sgSc in SG_DISTANCE_SCORE_YN) {
+        var _sgScYN = SG_DISTANCE_SCORE_YN[_sgSc];
+        var _sgAuto = sg_distanceAutoFromYN(_sgScYN);
+        if (!_sgAuto || !isFinite(_sgAuto.T)) continue;
+        var _sgLineY = _sgHorizon + _sgTravel * _sgAuto.T;
+        var _sgDelta = Math.abs(_sgLineY - p.y);
+        if (_sgDelta < _sgBestDelta) {
+          _sgBestDelta = _sgDelta;
+          _sgBestScore = _sgSc;
         }
-        if (_sgBestScore != null) {
-          sg_state.distanceY = SG_DISTANCE_SCORE_YN[_sgBestScore];
-          // Drop any prior live-T so the line falls back to its
-          // calibrated lineY for the snapped score (with the calibrated
-          // shape, not the generic flat-line default).
+      }
+      if (_sgBestScore != null) {
+        sg_state.distanceY = SG_DISTANCE_SCORE_YN[_sgBestScore];
+        // Pin the line under the pointer. Without this, lasers whose
+        // calibrated T > 1.0 (scores 1/2/3) land below the visible area
+        // and clicks in the upper dashboard always resolve to score 15
+        // at its baked Y, so the line appears to "only show when I
+        // click near where score 15 is drawn". With the live-T override
+        // the line goes exactly where the user tapped.
+        if (_sgTravel > 0) {
+          sg_distanceLiveT = (p.y - _sgHorizon) / _sgTravel;
+        } else {
           sg_distanceLiveT = null;
-          // Re-render so _sg_distance_line is populated for the line-hit
-          // check on the next line below.
-          sg_drawFrame(sg_curT);
         }
+        sg_drawFrame(sg_curT);
       }
     }
     // ── Drag the laser line ─────────────────────────────────────────────
@@ -6904,7 +6934,8 @@ function sg_onPD(e) {
       pointerY:    p.y,
       lineYAtDown: _sg_distance_line.y,
       horizonY:    _sg_distance_line.horizonY,
-      travel:      _sg_distance_line.travel
+      travel:      _sg_distance_line.travel,
+      moved:       false
     };
     sg_canvas.setPointerCapture(e.pointerId);
     sg_canvas.style.cursor = 'grabbing';
@@ -7030,6 +7061,15 @@ function sg_onPM(e) {
     var ds = sg_state.distanceDragStart;
     if (ds && ds.travel > 0) {
       var dy = p.y - ds.pointerY;
+      // Treat a sub-threshold pointermove as "still a tap": don't yet
+      // touch live-T or re-snap the score. This protects the just-
+      // placed click-position line from being yanked back to the
+      // calibrated lineY by touch jitter between pointerdown and the
+      // user's first real drag.
+      if (!ds.moved) {
+        if (Math.abs(dy) < SG_LASER_TAP_THRESHOLD_PX) return;
+        ds.moved = true;
+      }
       var newLineY = ds.lineYAtDown + dy;
       var snapScore = sg_lineYToNearestScore(newLineY, ds.horizonY, ds.travel);
       var snapYN    = SG_DISTANCE_SCORE_YN[snapScore];
@@ -7091,12 +7131,16 @@ function sg_onPU(e) {
       return;
     }
     if (!sg_state.distanceDragging) return;
+    var _sgDsEnd = sg_state.distanceDragStart;
     sg_state.distanceDragging = false;
     sg_state.distanceDragStart = null;
     // Line drag = continuous Score stepper. Score (and the underlying
     // calibration entry) was already updated each frame by sg_onPM via
     // snap-to-nearest-score, so there's nothing to commit on release.
-    sg_distanceLiveT = null;
+    // For a stationary tap (no movement past threshold), keep the
+    // click-placed live-T so the line stays where the user tapped
+    // instead of flickering back to the calibrated lineY.
+    if (_sgDsEnd && _sgDsEnd.moved) sg_distanceLiveT = null;
     // Reset cursor; sg_onPM will re-set it on the next move based on hover.
     sg_canvas.style.cursor = '';
     sg_drawFrame(sg_curT);
@@ -8673,6 +8717,16 @@ function sg_drawFrame(t) {
     ctx.stroke();
   }
 
+  // Distance: faint ghost lines at every calibrated score's lineY so the
+  // user can see the snap targets BEFORE clicking. Without these, clicks
+  // in the upper part of the screen (above the topmost line at score 15)
+  // all silently snap to that single topmost line, which reads as "only
+  // appears when I click very high". Drawn whenever distance mode is
+  // active, even before the first click, and even when a marker is
+  // already placed (acts as a re-snap guide).
+  if (sg_state.toolMode === 'distance' && !sg_state.distanceNoSound) {
+    sg_drawDistanceGhostLines(ctx, W, H, vL, vR, vC, sT, sB, d);
+  }
   // Distance marker (drawn last so it sits on top)
   if (sg_state.toolMode === 'distance' && (sg_state.distanceY != null || sg_state.distanceNoSound)) {
     sg_drawDistanceMarker(ctx, W, H, vL, vR, vC, sT, sB, d);
@@ -8722,6 +8776,54 @@ function sg_drawDistanceGuide(ctx, W, H, vL, vR, vC, sT, sB, d) {
   ctx.font = 'bold ' + (9*d) + 'px JetBrains Mono,monospace';
   ctx.fillStyle = 'rgba(0,229,204,.6)'; ctx.textAlign = 'left';
   ctx.fillText('DISTANCE', gx - 2*d, sT - 10*d);
+  ctx.restore();
+}
+
+// Faint horizontal guide at each calibrated score's lineY. Same image-
+// anchored horizonY/travel as the marker function and the snap, so the
+// guide y for score X is exactly where the laser will land when the
+// click snaps to score X. Off-canvas scores (T > 1.0 → behind listener)
+// are skipped so the guide only shows the actually-clickable targets.
+function sg_drawDistanceGhostLines(ctx, W, H, vL, vR, vC, sT, sB, d) {
+  var sH = sB - sT;
+  var horizonY = sT + sH * sg_eyeLevel;
+  var floorY   = sB;
+  var extra    = (floorY - horizonY) * 0.25;
+  var travel   = (floorY - horizonY) + extra;
+  var dashRectNow = sg_dashboardImageRect(vC, sT, sB);
+  var dashRectDef = sg_dashboardImageRectAt(vC, sT, sB, 150, 5.0, 5.0);
+  if (dashRectNow && dashRectDef && dashRectDef.drawH > 0) {
+    var imgScY = dashRectNow.drawH / dashRectDef.drawH;
+    var hRel   = (horizonY - dashRectDef.drawY) / dashRectDef.drawH;
+    horizonY = dashRectNow.drawY + hRel * dashRectNow.drawH;
+    travel   = travel * imgScY;
+  }
+  var hasMarker = (sg_state.distanceY != null);
+  var currentScore = hasMarker ? sg_yToDistanceScore(sg_state.distanceY) : null;
+  ctx.save();
+  ctx.setLineDash([3*d, 5*d]);
+  ctx.lineWidth = 1*d;
+  ctx.font = 'bold ' + (9*d) + 'px JetBrains Mono,monospace';
+  ctx.textBaseline = 'middle';
+  for (var sc in SG_DISTANCE_SCORE_YN) {
+    if (parseInt(sc, 10) === currentScore) continue;   // active score is drawn by the marker block
+    var yN = SG_DISTANCE_SCORE_YN[sc];
+    var auto = sg_distanceAutoFromYN(yN);
+    if (!auto || !isFinite(auto.T)) continue;
+    var lineY = horizonY + travel * auto.T;
+    if (lineY < sT + 4*d || lineY > H - 4*d) continue;
+    var alpha = hasMarker ? 0.14 : 0.26;
+    ctx.strokeStyle = 'rgba(0,229,204,' + alpha.toFixed(2) + ')';
+    ctx.beginPath();
+    ctx.moveTo(vL + 24*d, lineY);
+    ctx.lineTo(vR - 24*d, lineY);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(0,229,204,' + (alpha + 0.20).toFixed(2) + ')';
+    ctx.textAlign = 'right';
+    ctx.fillText(sc, vR - 6*d, lineY);
+    ctx.textAlign = 'left';
+    ctx.fillText(sc, vL + 6*d, lineY);
+  }
   ctx.restore();
 }
 
