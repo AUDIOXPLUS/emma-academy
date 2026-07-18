@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>EMMA Events</title>
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap');
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; height: 100%; }
+body {
+  background: #000;
+  color: #e0e0e0;
+  font-family: 'JetBrains Mono', 'Fira Mono', monospace;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+.ev-page {
+  display: none;
+  position: fixed;
+  inset: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+  padding: 28px 16px 32px;
+  overflow-y: auto;
+}
+.ev-page.active { display: flex; }
+.ev-logo { width: min(60vw, 220px); margin-bottom: -6px; opacity: 0.85; }
+.ev-title { font-size: 30px; font-weight: 700; color: #e0e0e0; letter-spacing: 3px; margin: 0 0 4px; }
+.ev-subtitle { color: #666; font-size: 13px; margin-bottom: 26px; letter-spacing: 1px; text-align: center; }
+.ev-card {
+  background: rgba(28,28,36,.9);
+  border: 1.5px solid rgba(255,255,255,.08);
+  border-radius: 18px;
+  padding: 32px 28px;
+  width: 100%;
+  max-width: 340px;
+  box-sizing: border-box;
+  text-align: center;
+}
+.ev-input {
+  width: 100%;
+  box-sizing: border-box;
+  background: rgba(0,0,0,.5);
+  border: 1px solid rgba(255,255,255,.15);
+  border-radius: 8px;
+  padding: 12px 14px;
+  color: #e0e0e0;
+  font-size: 14px;
+  font-family: inherit;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  outline: none;
+  transition: border-color .2s;
+}
+.ev-input:focus { border-color: #3cb4ff; }
+.ev-btn {
+  margin-top: 14px;
+  width: 100%;
+  background: rgba(28,28,36,.9);
+  border: 1.5px solid rgba(255,255,255,.08);
+  border-radius: 12px;
+  padding: 12px;
+  color: #e0e0e0;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all .2s;
+}
+.ev-btn:hover { border-color: #3cb4ff; background: rgba(40,40,52,.95); }
+.ev-error { color: #ff5577; font-size: 12px; margin-top: 10px; min-height: 14px; letter-spacing: 0.5px; }
+.ev-hint { color: #666; font-size: 11px; margin-top: 16px; letter-spacing: 0.5px; }
+.ev-status-icon { font-size: 34px; color: #3cb4ff; margin-bottom: 14px; }
+.ev-status-title { font-size: 18px; font-weight: 600; margin-bottom: 8px; }
+.ev-status-sub { font-size: 13px; color: #888; margin-bottom: 4px; }
+.ev-status-name { font-size: 13px; color: #3cb4ff; margin-bottom: 18px; }
+@media (max-width: 760px) {
+  .ev-card { padding: 24px 22px; }
+}
+</style>
+</head>
+<body>
+
+<!-- Access code entry -->
+<div id="ev-page-code" class="ev-page active">
+  <img src="emma_logo.webp" class="ev-logo" alt="EMMA">
+  <div class="ev-title">EVENTS</div>
+  <div class="ev-subtitle">EMMA Competition Judging</div>
+  <div class="ev-card">
+    <form id="ev-code-form">
+      <input type="text" id="ev-code-input" class="ev-input" placeholder="Access code" autocomplete="off" autocapitalize="characters" autofocus>
+      <button type="submit" class="ev-btn">Enter</button>
+      <div id="ev-code-error" class="ev-error"></div>
+    </form>
+  </div>
+</div>
+
+<!-- Checking code / signing in -->
+<div id="ev-page-loading" class="ev-page">
+  <div class="ev-card">
+    <div class="ev-status-icon"><i class="fas fa-circle-notch fa-spin"></i></div>
+    <div class="ev-status-title">Checking code&hellip;</div>
+  </div>
+</div>
+
+<!-- Firebase not configured / unreachable -->
+<div id="ev-page-notconfigured" class="ev-page">
+  <div class="ev-card">
+    <div class="ev-status-icon"><i class="fas fa-plug-circle-xmark"></i></div>
+    <div class="ev-status-title">Firebase not configured</div>
+    <div class="ev-status-sub">This deployment has no Firebase project connected yet.</div>
+    <button type="button" class="ev-btn" onclick="ev_showPage('code')">Back</button>
+  </div>
+</div>
+
+<!-- Admin (Back Office) placeholder -->
+<div id="ev-page-admin" class="ev-page">
+  <div class="ev-card">
+    <div class="ev-status-icon"><i class="fas fa-user-shield"></i></div>
+    <div class="ev-status-title">Back Office (coming soon)</div>
+    <button type="button" id="ev-admin-logout" class="ev-btn">Logout</button>
+  </div>
+</div>
+
+<!-- Judge Home placeholder -->
+<div id="ev-page-judge" class="ev-page">
+  <div class="ev-card">
+    <div class="ev-status-icon"><i class="fas fa-flag-checkered"></i></div>
+    <div class="ev-status-title">Judge Home (coming soon)</div>
+    <div class="ev-status-name" id="ev-judge-name"></div>
+    <button type="button" id="ev-judge-logout" class="ev-btn">Logout</button>
+  </div>
+</div>
+
+<!-- Firebase (compat build, ES5-friendly) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
+<script>
+// =============================================
+// FIREBASE CONFIG
+// TODO(AXP): paste the web app config from the Firebase console
+// (emma-academy project -> Project settings -> General -> Your apps -> Web app
+// -> SDK setup and configuration -> Config). Leave any field blank ("") if
+// unknown; the app detects an unconfigured project and shows a clean message
+// instead of trying (and failing) to sign in.
+// =============================================
+var FIREBASE_CONFIG = {
+  apiKey: "",
+  authDomain: "",
+  projectId: "",
+  storageBucket: "",
+  messagingSenderId: "",
+  appId: ""
+};
+
+var EV_db = null;
+var EV_firebaseReady = false;
+
+function ev_isConfigured() {
+  return !!(FIREBASE_CONFIG && FIREBASE_CONFIG.apiKey);
+}
+
+function ev_initFirebase() {
+  if (EV_firebaseReady) return true;
+  if (!ev_isConfigured()) return false;
+  try {
+    if (!firebase.apps || firebase.apps.length === 0) {
+      firebase.initializeApp(FIREBASE_CONFIG);
+    }
+    EV_db = firebase.firestore();
+    try {
+      EV_db.enablePersistence().catch(function (e) {
+        // Multiple tabs open, or browser doesn't support persistence.
+        // Non-fatal: the app still works without offline cache.
+      });
+    } catch (e) {
+      // enablePersistence not available on this SDK/browser: ignore.
+    }
+    EV_firebaseReady = true;
+    return true;
+  } catch (e) {
+    EV_firebaseReady = false;
+    return false;
+  }
+}
+
+function ev_showPage(name) {
+  var ids = ['code', 'loading', 'notconfigured', 'admin', 'judge'];
+  for (var i = 0; i < ids.length; i++) {
+    var el = document.getElementById('ev-page-' + ids[i]);
+    if (!el) continue;
+    if (ids[i] === name) { el.className = 'ev-page active'; }
+    else { el.className = 'ev-page'; }
+  }
+}
+
+function ev_setError(msg) {
+  var err = document.getElementById('ev-code-error');
+  if (err) err.textContent = msg || '';
+}
+
+function ev_tryCode() {
+  ev_setError('');
+  var input = document.getElementById('ev-code-input');
+  if (!input) return;
+  var code = (input.value || '').trim();
+  if (!code) {
+    ev_setError('Enter an access code');
+    return;
+  }
+
+  if (!ev_initFirebase()) {
+    ev_showPage('notconfigured');
+    return;
+  }
+
+  ev_showPage('loading');
+
+  firebase.auth().signInAnonymously().then(function () {
+    return EV_db.collection('judges').doc(code).get();
+  }).then(function (snap) {
+    if (!snap.exists) {
+      ev_showPage('code');
+      ev_setError('Invalid or revoked code');
+      return;
+    }
+    var data = snap.data() || {};
+    if (data.revoked === true) {
+      ev_showPage('code');
+      ev_setError('Invalid or revoked code');
+      return;
+    }
+    if (data.role === 'admin') {
+      ev_showPage('admin');
+    } else if (data.role === 'judge') {
+      var nameEl = document.getElementById('ev-judge-name');
+      if (nameEl) nameEl.textContent = data.name || code;
+      ev_showPage('judge');
+    } else {
+      ev_showPage('code');
+      ev_setError('Invalid or revoked code');
+    }
+  }).catch(function (err) {
+    // Bad/placeholder config, network issue, or auth not enabled yet:
+    // show a clean message instead of a raw Firebase error.
+    ev_showPage('notconfigured');
+  });
+}
+
+function ev_logout() {
+  try {
+    if (EV_firebaseReady && firebase.auth().currentUser) {
+      firebase.auth().signOut();
+    }
+  } catch (e) {}
+  var input = document.getElementById('ev-code-input');
+  if (input) input.value = '';
+  ev_setError('');
+  ev_showPage('code');
+}
+
+document.getElementById('ev-code-form').addEventListener('submit', function (e) {
+  e.preventDefault();
+  ev_tryCode();
+});
+document.getElementById('ev-admin-logout').addEventListener('click', ev_logout);
+document.getElementById('ev-judge-logout').addEventListener('click', ev_logout);
+
+ev_showPage('code');
+</script>
+</body>
+</html>
