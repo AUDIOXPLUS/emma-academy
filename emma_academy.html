@@ -256,9 +256,10 @@ body.immersive #inst-picker,body.immersive #btn-add-wrap{opacity:0;pointer-event
 #sync-cancel-btn:hover{background:#1e1e2c;color:#bbb;}
 #sync-overlay{position:fixed;inset:0;z-index:99;background:rgba(0,0,0,.5);display:none;}
 /* ===== PAGE NAVIGATION ===== */
-#page-main, #page-builder, #page-position, #page-login { display: none; position: fixed; inset: 0; }
+#page-main, #page-builder, #page-position, #page-login, #page-choice { display: none; position: fixed; inset: 0; }
 #page-main { display: flex; flex-direction: column; align-items: center; justify-content: center; background: #000; z-index: 1; }
 #page-login { display: flex; flex-direction: column; align-items: center; justify-content: center; background: #000; z-index: 10; }
+#page-choice { display: flex; flex-direction: column; align-items: center; justify-content: center; background: #000; z-index: 8; }
 .login-box { background: rgba(28,28,36,.9); border: 1.5px solid rgba(255,255,255,.08); border-radius: 18px; padding: 32px 40px; width: 340px; box-sizing: border-box; text-align: center; margin-top: 24px; }
 .login-input { width: 100%; box-sizing: border-box; background: rgba(0,0,0,.5); border: 1px solid rgba(255,255,255,.15); border-radius: 8px; padding: 12px 14px; color: #e0e0e0; font-size: 14px; font-family: inherit; outline: none; transition: border-color .2s; }
 .login-input:focus { border-color: #3cb4ff; }
@@ -810,7 +811,7 @@ body.immersive #inst-picker,body.immersive #btn-add-wrap{opacity:0;pointer-event
 /* Landing + login: stack vertically on phones so all 5 module cards
    stay reachable without sideways scrolling. */
 @media (max-width: 760px) {
-    #page-main, #page-login { justify-content: flex-start; padding: 28px 16px 32px; box-sizing: border-box; overflow-y: auto; }
+    #page-main, #page-login, #page-choice { justify-content: flex-start; padding: 28px 16px 32px; box-sizing: border-box; overflow-y: auto; }
     .landing-emma-logo { width: min(78vw, 340px); }
     .landing-logo { width: min(78vw, 340px); font-size: 26px; margin-bottom: 28px; letter-spacing: 1.5px; }
     .landing-subtitle { font-size: 12px; }
@@ -974,6 +975,24 @@ body.immersive #inst-picker,body.immersive #btn-add-wrap{opacity:0;pointer-event
       <button type="submit" class="login-btn-submit">Enter</button>
       <div id="login-error" class="login-error"></div>
     </form>
+  </div>
+</div>
+
+<div id="page-choice">
+  <img src="emma_logo.webp" class="landing-emma-logo" alt="EMMA">
+  <div class="landing-logo">ACADEMY</div>
+  <div class="landing-subtitle">Choose your workspace</div>
+  <div class="landing-buttons">
+    <button class="landing-btn" onclick="showPage('main')">
+      <div class="landing-btn-icon"><i class="fas fa-graduation-cap"></i></div>
+      <div class="landing-btn-title">EMMA Academy</div>
+      <div class="landing-btn-sub">Judge training &amp; scoring simulators</div>
+    </button>
+    <button id="choice-events-btn" class="landing-btn" onclick="window.location.href='emma_events.html'">
+      <div class="landing-btn-icon"><i class="fas fa-flag-checkered"></i></div>
+      <div class="landing-btn-title">Events</div>
+      <div class="landing-btn-sub">Live competition judging</div>
+    </button>
   </div>
 </div>
 
@@ -5292,7 +5311,7 @@ function emma_tryLogin() {
     try { sessionStorage.setItem('emma_authed', '1'); } catch (e) {}
     if (err) err.textContent = '';
     input.value = '';
-    showPage('main');
+    showPage('choice');
   } else {
     if (err) err.textContent = 'Wrong password';
     input.value = '';
@@ -5305,6 +5324,7 @@ function showPage(name) {
   // itself is allowed when the user isn't authed yet.
   if (!emma_isAuthed() && name !== 'login') name = 'login';
   document.getElementById('page-login').style.display = 'none';
+  document.getElementById('page-choice').style.display = 'none';
   document.getElementById('page-main').style.display = 'none';
   document.getElementById('page-builder').style.display = 'none';
   document.getElementById('page-position').style.display = 'none';
@@ -5312,11 +5332,17 @@ function showPage(name) {
   document.getElementById('page-stage').style.display = 'none';
   document.getElementById('page-tonal').style.display = 'none';
   var mc = document.getElementById('module-credit');
-  if (mc) mc.style.display = (name === 'main' || name === 'builder' || name === 'login') ? 'none' : 'block';
+  if (mc) mc.style.display = (name === 'main' || name === 'builder' || name === 'login' || name === 'choice') ? 'none' : 'block';
   if (name === 'login') {
     document.getElementById('page-login').style.display = 'flex';
     var pw = document.getElementById('login-pw');
     if (pw) { try { pw.focus(); } catch (e) {} }
+    return;
+  }
+  if (name === 'choice') {
+    document.getElementById('page-choice').style.display = 'flex';
+    var eventsBtn = document.getElementById('choice-events-btn');
+    if (eventsBtn) eventsBtn.style.display = (location.protocol === 'file:') ? 'none' : '';
     return;
   }
   if (name === 'main') {
@@ -5347,7 +5373,7 @@ window.addEventListener('load', function() {
   ['login-emma-logo','sc-emma-logo','fc-emma-logo','sg-emma-logo'].forEach(function(id){
     var el = document.getElementById(id); if (el && !el.src) el.src = src;
   });
-  showPage(emma_isAuthed() ? 'main' : 'login');
+  showPage(emma_isAuthed() ? 'choice' : 'login');
   emma_updateLandingStatus();
 });
 
@@ -11926,9 +11952,9 @@ function fc_saveScoresheet() {
 
 </script>
 <script>
-// Show main page on startup (override v9 init)
+// Show main/choice page on startup (override v9 init)
 window.addEventListener('load', function() {
-  setTimeout(function() { showPage('main'); }, 50);
+  setTimeout(function() { showPage(emma_isAuthed() ? 'choice' : 'login'); }, 50);
 });
 </script>
 </body>
