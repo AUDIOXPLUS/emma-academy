@@ -12,7 +12,9 @@
       "build_standalone.js",
       "emma_academy_standalone.html",
       "README.txt",
-      "CLAUDE.md"
+      "CLAUDE.md",
+      "firestore.rules",
+      "EVENTS_SCHEMA.md"
     ],
     "cleanUrls": true,
     "headers": [
