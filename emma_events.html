@@ -87,6 +87,93 @@ body {
 @media (max-width: 760px) {
   .ev-card { padding: 24px 22px; }
 }
+
+/* --- Back office: topbar, lists, forms (Fase 2a) --- */
+.ev-page-wide { justify-content: flex-start; }
+.ev-wide { max-width: 480px; }
+.ev-topbar {
+  width: 100%;
+  max-width: 480px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.ev-back {
+  background: none;
+  border: none;
+  color: #3cb4ff;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 4px 6px 4px 0;
+  line-height: 1;
+}
+.ev-topbar-title { font-size: 16px; font-weight: 700; letter-spacing: 1px; flex: 1; }
+.ev-add-btn {
+  background: rgba(60,180,255,.12);
+  border: 1.5px solid #3cb4ff;
+  color: #3cb4ff;
+  border-radius: 10px;
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ev-list { width: 100%; max-width: 480px; }
+.ev-list-item {
+  background: rgba(28,28,36,.9);
+  border: 1.5px solid rgba(255,255,255,.08);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  cursor: pointer;
+  transition: border-color .2s;
+}
+.ev-list-item:hover, .ev-list-item:active { border-color: #3cb4ff; }
+.ev-list-item-title { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
+.ev-list-item-sub { font-size: 12px; color: #888; }
+.ev-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .5px;
+  padding: 2px 8px;
+  border-radius: 20px;
+  background: rgba(60,180,255,.15);
+  color: #3cb4ff;
+  margin-left: 6px;
+  text-transform: uppercase;
+}
+.ev-badge-revoked { background: rgba(255,85,119,.15); color: #ff5577; }
+.ev-empty { color: #666; font-size: 13px; text-align: center; padding: 24px 0; }
+.ev-form { width: 100%; max-width: 480px; }
+.ev-field { margin-bottom: 14px; }
+.ev-label { display: block; font-size: 11px; color: #888; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 6px; }
+.ev-form .ev-input { text-transform: none; letter-spacing: normal; }
+.ev-textarea {
+  width: 100%; box-sizing: border-box; background: rgba(0,0,0,.5);
+  border: 1px solid rgba(255,255,255,.15); border-radius: 8px; padding: 12px 14px;
+  color: #e0e0e0; font-size: 14px; font-family: inherit; outline: none; resize: vertical;
+  min-height: 60px;
+}
+.ev-textarea:focus { border-color: #3cb4ff; }
+.ev-group-header { font-size: 12px; font-weight: 700; color: #3cb4ff; margin: 16px 0 8px; letter-spacing: .5px; }
+.ev-check-row { display: flex; align-items: center; gap: 8px; padding: 6px 2px; font-size: 13px; }
+.ev-check-row input[type=checkbox] { width: 16px; height: 16px; accent-color: #3cb4ff; }
+.ev-form-btn-row { display: flex; gap: 10px; margin-top: 18px; }
+.ev-form-btn-row .ev-btn { margin-top: 0; }
+.ev-btn-secondary { background: transparent; }
+.ev-btn-primary { border-color: #3cb4ff; color: #3cb4ff; }
+.ev-toggle-btn {
+  background: transparent; border: 1px solid rgba(255,255,255,.2); color: #aaa;
+  border-radius: 8px; padding: 6px 10px; font-size: 11px; font-family: inherit;
+  cursor: pointer; margin-top: 8px;
+}
+.ev-toggle-btn.ev-revoke { border-color: #ff5577; color: #ff5577; }
+.ev-detail-row { font-size: 13px; color: #ccc; margin-bottom: 6px; }
+.ev-detail-row b { color: #e0e0e0; }
 </style>
 </head>
 <body>
@@ -123,12 +210,99 @@ body {
   </div>
 </div>
 
-<!-- Admin (Back Office) placeholder -->
+<!-- Admin (Back Office) home -->
 <div id="ev-page-admin" class="ev-page">
-  <div class="ev-card">
-    <div class="ev-status-icon"><i class="fas fa-user-shield"></i></div>
-    <div class="ev-status-title">Back Office (coming soon)</div>
-    <button type="button" id="ev-admin-logout" class="ev-btn">Logout</button>
+  <img src="emma_logo.webp" class="ev-logo" alt="EMMA" style="width:100px;margin-bottom:4px;">
+  <div class="ev-title" style="font-size:22px;">BACK OFFICE</div>
+  <div class="ev-subtitle">EMMA Events administration</div>
+  <div class="ev-wide" style="width:100%;">
+    <div class="ev-list-item" onclick="ev_openEventsList()">
+      <div class="ev-list-item-title"><i class="fas fa-calendar-days"></i>&nbsp; Events</div>
+      <div class="ev-list-item-sub">Create and manage competition events</div>
+    </div>
+    <div class="ev-list-item" onclick="ev_openJudgesList()">
+      <div class="ev-list-item-title"><i class="fas fa-user-shield"></i>&nbsp; Judges</div>
+      <div class="ev-list-item-sub">Create judges, assign codes, revoke access</div>
+    </div>
+  </div>
+  <button type="button" id="ev-admin-logout" class="ev-btn ev-wide" style="margin-top:6px;">Logout</button>
+</div>
+
+<!-- Events: list -->
+<div id="ev-page-events-list" class="ev-page ev-page-wide">
+  <div class="ev-topbar">
+    <button type="button" class="ev-back" onclick="ev_showPage('admin')"><i class="fas fa-arrow-left"></i></button>
+    <div class="ev-topbar-title">EVENTS</div>
+    <button type="button" class="ev-add-btn" onclick="ev_openNewEvent()">+ New</button>
+  </div>
+  <div class="ev-list" id="ev-events-list-container">
+    <div class="ev-empty">Loading&hellip;</div>
+  </div>
+</div>
+
+<!-- Events: create / edit form -->
+<div id="ev-page-event-form" class="ev-page ev-page-wide">
+  <div class="ev-topbar">
+    <button type="button" class="ev-back" onclick="ev_showPage('events-list')"><i class="fas fa-arrow-left"></i></button>
+    <div class="ev-topbar-title" id="ev-event-form-title">NEW EVENT</div>
+  </div>
+  <div class="ev-form">
+    <div class="ev-field">
+      <label class="ev-label" for="ev-ef-name">Name</label>
+      <input type="text" id="ev-ef-name" class="ev-input">
+    </div>
+    <div class="ev-field">
+      <label class="ev-label" for="ev-ef-start">Start date</label>
+      <input type="date" id="ev-ef-start" class="ev-input">
+    </div>
+    <div class="ev-field">
+      <label class="ev-label" for="ev-ef-end">End date</label>
+      <input type="date" id="ev-ef-end" class="ev-input">
+    </div>
+    <div class="ev-field">
+      <label class="ev-label" for="ev-ef-location">Location</label>
+      <input type="text" id="ev-ef-location" class="ev-input">
+    </div>
+    <div class="ev-field">
+      <label class="ev-label" for="ev-ef-organizer">Organizer</label>
+      <input type="text" id="ev-ef-organizer" class="ev-input">
+    </div>
+    <div class="ev-field">
+      <label class="ev-label" for="ev-ef-notes">Notes</label>
+      <textarea id="ev-ef-notes" class="ev-textarea"></textarea>
+    </div>
+    <div class="ev-field">
+      <label class="ev-label">Active classes</label>
+      <div id="ev-ef-classes"><div class="ev-empty">Loading catalog&hellip;</div></div>
+    </div>
+    <div id="ev-ef-error" class="ev-error"></div>
+    <div class="ev-form-btn-row">
+      <button type="button" class="ev-btn ev-btn-secondary" onclick="ev_showPage('events-list')">Cancel</button>
+      <button type="button" class="ev-btn ev-btn-primary" onclick="ev_saveEvent()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Events: detail -->
+<div id="ev-page-event-detail" class="ev-page ev-page-wide">
+  <div class="ev-topbar">
+    <button type="button" class="ev-back" onclick="ev_showPage('events-list')"><i class="fas fa-arrow-left"></i></button>
+    <div class="ev-topbar-title">EVENT</div>
+    <button type="button" class="ev-add-btn" onclick="ev_openEditEvent(EV_currentEventId)">Edit</button>
+  </div>
+  <div class="ev-form" id="ev-event-detail-container">
+    <div class="ev-empty">Loading&hellip;</div>
+  </div>
+</div>
+
+<!-- Judges: list (shell -- filled in by Fase 2a Task 5) -->
+<div id="ev-page-judges-list" class="ev-page ev-page-wide">
+  <div class="ev-topbar">
+    <button type="button" class="ev-back" onclick="ev_showPage('admin')"><i class="fas fa-arrow-left"></i></button>
+    <div class="ev-topbar-title">JUDGES</div>
+  </div>
+  <div class="ev-list" id="ev-judges-list-container">
+    <div class="ev-empty">Loading&hellip;</div>
   </div>
 </div>
 
@@ -217,7 +391,8 @@ function ev_initFirebase() {
 }
 
 function ev_showPage(name) {
-  var ids = ['code', 'loading', 'notconfigured', 'admin', 'judge'];
+  var ids = ['code', 'loading', 'notconfigured', 'admin', 'judge',
+    'events-list', 'event-form', 'event-detail', 'judges-list'];
   for (var i = 0; i < ids.length; i++) {
     var el = document.getElementById('ev-page-' + ids[i]);
     if (!el) continue;
@@ -287,6 +462,226 @@ function ev_tryCode() {
     // show a clean message instead of a raw Firebase error.
     ev_showPage('notconfigured');
   });
+}
+
+// ---------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------
+
+function ev_esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// Firestore Timestamp (or JS Date) -> 'YYYY-MM-DD' for <input type="date">.
+function ev_tsToDateInput(ts) {
+  if (!ts) return '';
+  var d = (typeof ts.toDate === 'function') ? ts.toDate() : ts;
+  var mm = ('0' + (d.getMonth() + 1)).slice(-2);
+  var dd = ('0' + d.getDate()).slice(-2);
+  return d.getFullYear() + '-' + mm + '-' + dd;
+}
+
+// 'YYYY-MM-DD' (from <input type="date">) -> JS Date (or null if blank).
+// The Firestore compat SDK converts a plain Date to a Timestamp on write.
+function ev_dateInputToDate(val) {
+  if (!val) return null;
+  var parts = val.split('-');
+  return new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+}
+
+// Short human date for list/detail display, e.g. "12 Sep 2026".
+function ev_fmtDate(ts) {
+  if (!ts) return '?';
+  var d = (typeof ts.toDate === 'function') ? ts.toDate() : ts;
+  var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return d.getDate() + ' ' + months[d.getMonth()] + ' ' + d.getFullYear();
+}
+
+// ---------------------------------------------------------------------
+// Back office: EVENTS
+// ---------------------------------------------------------------------
+
+var EV_currentEventId = null;
+
+function ev_openEventsList() {
+  ev_showPage('events-list');
+  ev_loadEventsList();
+}
+
+function ev_loadEventsList() {
+  var box = document.getElementById('ev-events-list-container');
+  box.innerHTML = '<div class="ev-empty">Loading&hellip;</div>';
+  EV_db.collection('events').orderBy('createdAt', 'desc').get().then(function (qs) {
+    if (qs.empty) {
+      box.innerHTML = '<div class="ev-empty">No events yet. Tap "+ New" to create one.</div>';
+      return;
+    }
+    var html = '';
+    qs.forEach(function (doc) {
+      var e = doc.data() || {};
+      var dates = e.dates || [];
+      var dateStr = dates.length ? ev_fmtDate(dates[0]) + (dates[1] ? ' – ' + ev_fmtDate(dates[1]) : '') : '?';
+      var classCount = (e.activeClasses || []).length;
+      html += '<div class="ev-list-item" onclick="ev_openEventDetail(\'' + doc.id + '\')">'
+        + '<div class="ev-list-item-title">' + ev_esc(e.name || '(untitled)')
+        + '<span class="ev-badge">' + ev_esc((e.status || 'draft').toUpperCase()) + '</span>'
+        + '<span class="ev-badge">' + classCount + ' class' + (classCount === 1 ? '' : 'es') + '</span>'
+        + '</div>'
+        + '<div class="ev-list-item-sub">' + ev_esc(dateStr) + (e.location ? ' · ' + ev_esc(e.location) : '') + '</div>'
+        + '</div>';
+    });
+    box.innerHTML = html;
+  }).catch(function (err) {
+    box.innerHTML = '<div class="ev-empty">Could not load events.</div>';
+  });
+}
+
+// Renders the category-grouped class checkboxes into #ev-ef-classes.
+// activeClassIds: array of class ids that should start checked (edit mode).
+function ev_renderClassCheckboxes(activeClassIds) {
+  var box = document.getElementById('ev-ef-classes');
+  var checkedSet = {};
+  (activeClassIds || []).forEach(function (id) { checkedSet[id] = true; });
+  ev_loadCategories(function (data) {
+    var html = '';
+    (data.categories || []).forEach(function (cat) {
+      html += '<div class="ev-group-header">' + ev_esc(cat.name) + '</div>';
+      (cat.classes || []).forEach(function (cls) {
+        var checked = checkedSet[cls.id] ? ' checked' : '';
+        html += '<label class="ev-check-row"><input type="checkbox" value="' + ev_esc(cls.id) + '"' + checked + '> '
+          + ev_esc(cls.name) + '</label>';
+      });
+    });
+    box.innerHTML = html || '<div class="ev-empty">Catalog is empty.</div>';
+  }, function () {
+    box.innerHTML = '<div class="ev-empty">Could not load the categories catalog.</div>';
+  });
+}
+
+function ev_collectCheckedClasses() {
+  var box = document.getElementById('ev-ef-classes');
+  var boxes = box.querySelectorAll('input[type=checkbox]:checked');
+  var ids = [];
+  for (var i = 0; i < boxes.length; i++) { ids.push(boxes[i].value); }
+  return ids;
+}
+
+function ev_clearEventForm() {
+  document.getElementById('ev-ef-name').value = '';
+  document.getElementById('ev-ef-start').value = '';
+  document.getElementById('ev-ef-end').value = '';
+  document.getElementById('ev-ef-location').value = '';
+  document.getElementById('ev-ef-organizer').value = '';
+  document.getElementById('ev-ef-notes').value = '';
+  document.getElementById('ev-ef-error').textContent = '';
+}
+
+function ev_openNewEvent() {
+  EV_currentEventId = null;
+  ev_clearEventForm();
+  document.getElementById('ev-event-form-title').textContent = 'NEW EVENT';
+  ev_renderClassCheckboxes([]);
+  ev_showPage('event-form');
+}
+
+function ev_openEditEvent(eventId) {
+  if (!eventId) return;
+  EV_currentEventId = eventId;
+  ev_clearEventForm();
+  document.getElementById('ev-event-form-title').textContent = 'EDIT EVENT';
+  ev_showPage('event-form');
+  EV_db.collection('events').doc(eventId).get().then(function (snap) {
+    if (!snap.exists) {
+      document.getElementById('ev-ef-error').textContent = 'Event not found.';
+      return;
+    }
+    var e = snap.data() || {};
+    document.getElementById('ev-ef-name').value = e.name || '';
+    var dates = e.dates || [];
+    document.getElementById('ev-ef-start').value = dates[0] ? ev_tsToDateInput(dates[0]) : '';
+    document.getElementById('ev-ef-end').value = dates[1] ? ev_tsToDateInput(dates[1]) : '';
+    document.getElementById('ev-ef-location').value = e.location || '';
+    document.getElementById('ev-ef-organizer').value = e.organizer || '';
+    document.getElementById('ev-ef-notes').value = e.notes || '';
+    ev_renderClassCheckboxes(e.activeClasses || []);
+  }).catch(function (err) {
+    document.getElementById('ev-ef-error').textContent = 'Could not load event.';
+  });
+}
+
+function ev_saveEvent() {
+  var errEl = document.getElementById('ev-ef-error');
+  errEl.textContent = '';
+  var name = document.getElementById('ev-ef-name').value.trim();
+  if (!name) {
+    errEl.textContent = 'Name is required';
+    return;
+  }
+  var startDate = ev_dateInputToDate(document.getElementById('ev-ef-start').value);
+  var endDate = ev_dateInputToDate(document.getElementById('ev-ef-end').value);
+  var fields = {
+    name: name,
+    dates: [startDate, endDate],
+    location: document.getElementById('ev-ef-location').value.trim(),
+    organizer: document.getElementById('ev-ef-organizer').value.trim(),
+    notes: document.getElementById('ev-ef-notes').value.trim(),
+    activeClasses: ev_collectCheckedClasses()
+  };
+
+  if (EV_currentEventId) {
+    EV_db.collection('events').doc(EV_currentEventId).update(fields).then(function () {
+      ev_openEventDetail(EV_currentEventId);
+    }).catch(function (err) {
+      errEl.textContent = 'Could not save event.';
+    });
+  } else {
+    fields.status = 'draft';
+    fields.judgeAssignments = [];
+    fields.createdAt = firebase.firestore.FieldValue.serverTimestamp();
+    EV_db.collection('events').add(fields).then(function (ref) {
+      ev_openEventDetail(ref.id);
+    }).catch(function (err) {
+      errEl.textContent = 'Could not save event.';
+    });
+  }
+}
+
+function ev_openEventDetail(eventId) {
+  EV_currentEventId = eventId;
+  ev_showPage('event-detail');
+  var box = document.getElementById('ev-event-detail-container');
+  box.innerHTML = '<div class="ev-empty">Loading&hellip;</div>';
+  EV_db.collection('events').doc(eventId).get().then(function (snap) {
+    if (!snap.exists) {
+      box.innerHTML = '<div class="ev-empty">Event not found.</div>';
+      return;
+    }
+    var e = snap.data() || {};
+    var dates = e.dates || [];
+    var html = '<div class="ev-detail-row"><b>' + ev_esc(e.name || '(untitled)') + '</b>'
+      + '<span class="ev-badge">' + ev_esc((e.status || 'draft').toUpperCase()) + '</span></div>'
+      + '<div class="ev-detail-row">' + (dates[0] ? ev_fmtDate(dates[0]) : '?')
+      + (dates[1] ? ' – ' + ev_fmtDate(dates[1]) : '') + '</div>'
+      + (e.location ? '<div class="ev-detail-row">' + ev_esc(e.location) + '</div>' : '')
+      + (e.organizer ? '<div class="ev-detail-row">Organizer: ' + ev_esc(e.organizer) + '</div>' : '')
+      + (e.notes ? '<div class="ev-detail-row">' + ev_esc(e.notes) + '</div>' : '')
+      + '<div class="ev-detail-row">' + (e.activeClasses || []).length + ' active class(es)</div>';
+    box.innerHTML = html;
+  }).catch(function (err) {
+    box.innerHTML = '<div class="ev-empty">Could not load event.</div>';
+  });
+}
+
+// ---------------------------------------------------------------------
+// Back office: JUDGES (shell -- full CRUD lands in Fase 2a Task 5)
+// ---------------------------------------------------------------------
+
+function ev_openJudgesList() {
+  ev_showPage('judges-list');
+  document.getElementById('ev-judges-list-container').innerHTML =
+    '<div class="ev-empty">Judges management is coming in the next task.</div>';
 }
 
 function ev_logout() {
