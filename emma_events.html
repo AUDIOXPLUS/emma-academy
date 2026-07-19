@@ -295,14 +295,46 @@ body {
   </div>
 </div>
 
-<!-- Judges: list (shell -- filled in by Fase 2a Task 5) -->
+<!-- Judges: list -->
 <div id="ev-page-judges-list" class="ev-page ev-page-wide">
   <div class="ev-topbar">
     <button type="button" class="ev-back" onclick="ev_showPage('admin')"><i class="fas fa-arrow-left"></i></button>
     <div class="ev-topbar-title">JUDGES</div>
+    <button type="button" class="ev-add-btn" onclick="ev_openNewJudge()">+ New</button>
   </div>
   <div class="ev-list" id="ev-judges-list-container">
     <div class="ev-empty">Loading&hellip;</div>
+  </div>
+</div>
+
+<!-- Judges: new judge form -->
+<div id="ev-page-judge-form" class="ev-page ev-page-wide">
+  <div class="ev-topbar">
+    <button type="button" class="ev-back" onclick="ev_showPage('judges-list')"><i class="fas fa-arrow-left"></i></button>
+    <div class="ev-topbar-title">NEW JUDGE</div>
+  </div>
+  <div class="ev-form">
+    <div class="ev-field">
+      <label class="ev-label" for="ev-jf-name">Name</label>
+      <input type="text" id="ev-jf-name" class="ev-input">
+    </div>
+    <div class="ev-field">
+      <label class="ev-label" for="ev-jf-qualification">Qualification</label>
+      <input type="text" id="ev-jf-qualification" class="ev-input">
+    </div>
+    <div class="ev-field">
+      <label class="ev-label" for="ev-jf-country">Country</label>
+      <input type="text" id="ev-jf-country" class="ev-input">
+    </div>
+    <div class="ev-field">
+      <label class="ev-label" for="ev-jf-code">Access code</label>
+      <input type="text" id="ev-jf-code" class="ev-input" style="text-transform:uppercase" autocapitalize="characters">
+    </div>
+    <div id="ev-jf-error" class="ev-error"></div>
+    <div class="ev-form-btn-row">
+      <button type="button" class="ev-btn ev-btn-secondary" onclick="ev_showPage('judges-list')">Cancel</button>
+      <button type="button" class="ev-btn ev-btn-primary" onclick="ev_saveJudge()">Save</button>
+    </div>
   </div>
 </div>
 
@@ -392,7 +424,7 @@ function ev_initFirebase() {
 
 function ev_showPage(name) {
   var ids = ['code', 'loading', 'notconfigured', 'admin', 'judge',
-    'events-list', 'event-form', 'event-detail', 'judges-list'];
+    'events-list', 'event-form', 'event-detail', 'judges-list', 'judge-form'];
   for (var i = 0; i < ids.length; i++) {
     var el = document.getElementById('ev-page-' + ids[i]);
     if (!el) continue;
@@ -675,13 +707,113 @@ function ev_openEventDetail(eventId) {
 }
 
 // ---------------------------------------------------------------------
-// Back office: JUDGES (shell -- full CRUD lands in Fase 2a Task 5)
+// Back office: JUDGES
 // ---------------------------------------------------------------------
 
 function ev_openJudgesList() {
   ev_showPage('judges-list');
-  document.getElementById('ev-judges-list-container').innerHTML =
-    '<div class="ev-empty">Judges management is coming in the next task.</div>';
+  ev_loadJudgesList();
+}
+
+function ev_loadJudgesList() {
+  var box = document.getElementById('ev-judges-list-container');
+  box.innerHTML = '<div class="ev-empty">Loading&hellip;</div>';
+  EV_db.collection('judges').get().then(function (qs) {
+    if (qs.empty) {
+      box.innerHTML = '<div class="ev-empty">No judges yet. Tap "+ New" to create one.</div>';
+      return;
+    }
+    var html = '';
+    qs.forEach(function (doc) {
+      var j = doc.data() || {};
+      var revoked = j.revoked === true;
+      html += '<div class="ev-list-item" style="cursor:default;">'
+        + '<div class="ev-list-item-title">' + ev_esc(j.name || doc.id)
+        + '<span class="ev-badge">' + ev_esc((j.role || 'judge').toUpperCase()) + '</span>'
+        + (revoked ? '<span class="ev-badge ev-badge-revoked">REVOKED</span>' : '')
+        + '</div>'
+        + '<div class="ev-list-item-sub">' + ev_esc(doc.id) + (j.country ? ' · ' + ev_esc(j.country) : '') + '</div>';
+      // Admin docs are managed from the Firebase console, not this list
+      // (avoids an admin accidentally revoking themselves or another admin).
+      if (j.role !== 'admin') {
+        html += '<button type="button" class="ev-toggle-btn' + (revoked ? '' : ' ev-revoke') + '" '
+          + 'onclick="event.stopPropagation(); ev_toggleJudgeRevoke(\'' + doc.id + '\', ' + revoked + ')">'
+          + (revoked ? 'Reactivate' : 'Revoke') + '</button>';
+      }
+      html += '</div>';
+    });
+    box.innerHTML = html;
+  }).catch(function (err) {
+    box.innerHTML = '<div class="ev-empty">Could not load judges.</div>';
+  });
+}
+
+function ev_toggleJudgeRevoke(code, currentlyRevoked) {
+  EV_db.collection('judges').doc(code).update({ revoked: !currentlyRevoked }).then(function () {
+    ev_loadJudgesList();
+  }).catch(function (err) {
+    document.getElementById('ev-judges-list-container').innerHTML =
+      '<div class="ev-empty">Could not update judge.</div>';
+  });
+}
+
+// SURNAME-4digits suggestion from the last word typed in the name field.
+function ev_suggestCode(fullName) {
+  var parts = (fullName || '').trim().split(/\s+/);
+  var surname = parts.length ? parts[parts.length - 1] : '';
+  surname = surname.toUpperCase().replace(/[^A-Z]/g, '');
+  if (!surname) surname = 'JUDGE';
+  var digits = ('000' + Math.floor(Math.random() * 10000)).slice(-4);
+  return surname + '-' + digits;
+}
+
+function ev_clearJudgeForm() {
+  document.getElementById('ev-jf-name').value = '';
+  document.getElementById('ev-jf-qualification').value = '';
+  document.getElementById('ev-jf-country').value = '';
+  document.getElementById('ev-jf-code').value = '';
+  document.getElementById('ev-jf-error').textContent = '';
+}
+
+function ev_openNewJudge() {
+  ev_clearJudgeForm();
+  ev_showPage('judge-form');
+}
+
+function ev_saveJudge() {
+  var errEl = document.getElementById('ev-jf-error');
+  errEl.textContent = '';
+  var name = document.getElementById('ev-jf-name').value.trim();
+  var code = document.getElementById('ev-jf-code').value.trim().toUpperCase();
+  if (!name) {
+    errEl.textContent = 'Name is required';
+    return;
+  }
+  if (!code) {
+    errEl.textContent = 'Access code is required';
+    return;
+  }
+  var qualification = document.getElementById('ev-jf-qualification').value.trim();
+  var country = document.getElementById('ev-jf-country').value.trim();
+
+  var ref = EV_db.collection('judges').doc(code);
+  ref.get().then(function (snap) {
+    if (snap.exists) {
+      errEl.textContent = 'This code already exists.';
+      return;
+    }
+    return ref.set({
+      name: name,
+      qualification: qualification,
+      country: country,
+      role: 'judge',
+      revoked: false
+    }).then(function () {
+      ev_openJudgesList();
+    });
+  }).catch(function (err) {
+    errEl.textContent = 'Could not save judge.';
+  });
 }
 
 function ev_logout() {
@@ -702,6 +834,12 @@ document.getElementById('ev-code-form').addEventListener('submit', function (e) 
 });
 document.getElementById('ev-admin-logout').addEventListener('click', ev_logout);
 document.getElementById('ev-judge-logout').addEventListener('click', ev_logout);
+document.getElementById('ev-jf-name').addEventListener('blur', function () {
+  var codeInput = document.getElementById('ev-jf-code');
+  if (codeInput && !codeInput.value) {
+    codeInput.value = ev_suggestCode(this.value);
+  }
+});
 
 ev_showPage('code');
 </script>
