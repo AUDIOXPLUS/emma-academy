@@ -1,6 +1,6 @@
 rules_version = '2';
 
-// EMMA Events — Firestore security rules, Phase 1.
+// EMMA Events — Firestore security rules, Phase 2a.
 // See EVENTS_SCHEMA.md for the collections planned across all phases.
 //
 // NOT deployed by this branch — the orchestrator/AXP deploys from the
@@ -9,22 +9,74 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // judges/{code}: the access code IS the document id (see
-    // SPEC_EVENTS_v1.2, decision #1 — "possession of the code = identity").
-    // - get: allowed to any authenticated user (anonymous auth included),
-    //   so the app can look up the code the person just typed.
-    // - list: denied, so the collection can't be enumerated to harvest
-    //   valid codes.
-    // - writes: denied from the client for Phase 1. Judge/admin docs are
-    //   created and edited from the Firebase console by hand until the
-    //   back office (Phase 2) takes this over.
-    match /judges/{code} {
-      allow get: if request.auth != null;
-      allow list: if false;
-      allow create, update, delete: if false;
+    // --- Session helpers ------------------------------------------------
+    // Session mechanism (orchestrator decision, Fase 2a): on successful
+    // code login the client writes sessions/{auth.uid} = { code, ts }.
+    // These helpers resolve "who is this Firebase Auth session, as an
+    // EMMA judge/admin" by following that pointer.
+
+    // The access code tied to the caller's current Firebase Auth session,
+    // or errors out (-> the calling rule denies) if there is none yet.
+    function sessionCode() {
+      return get(/databases/$(database)/documents/sessions/$(request.auth.uid)).data.code;
     }
 
-    // Everything else (events, competitors, registrations, evaluations, ...):
+    // The judges/{code} doc for the caller's session.
+    function sessionJudge() {
+      return get(/databases/$(database)/documents/judges/$(sessionCode()));
+    }
+
+    // True only for a non-revoked admin session. Uses `let` so the judge
+    // doc is fetched once, not twice (role check + revoked check).
+    function isAdmin() {
+      let j = sessionJudge();
+      return j.data.role == 'admin' && j.data.get('revoked', false) != true;
+    }
+
+    // --- sessions/{uid} ---------------------------------------------------
+    // One doc per Firebase Auth uid, written by the client right after a
+    // successful code login.
+    // - create/update: only the session's own uid, and only pointing at a
+    //   judges/{code} doc that actually exists and isn't revoked (so a
+    //   session can't be forged to point at a bogus or revoked code).
+    // - get: only your own session doc.
+    // - list/delete: denied (orphaned sessions on logout are harmless and
+    //   intentionally not cleaned up, per the Fase 2a prompt).
+    match /sessions/{uid} {
+      allow get: if request.auth != null && request.auth.uid == uid;
+      allow create, update: if request.auth != null && request.auth.uid == uid
+        && exists(/databases/$(database)/documents/judges/$(request.resource.data.code))
+        && get(/databases/$(database)/documents/judges/$(request.resource.data.code)).data.get('revoked', false) != true;
+      allow list, delete: if false;
+    }
+
+    // --- judges/{code} ------------------------------------------------
+    // The access code IS the document id (see SPEC_EVENTS_v1.2, decision #1
+    // — "possession of the code = identity").
+    // - get: unchanged from Phase 1 — any authenticated user, so the app
+    //   can look up the code the person just typed at login.
+    // - list: admin-only now that the back office needs a judges list.
+    // - create/update/delete: admin-only (the back office's Judges
+    //   section). Phase 1's "console-only" restriction is lifted.
+    match /judges/{code} {
+      allow get: if request.auth != null;
+      allow list: if isAdmin();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // --- events/{eventId} -----------------------------------------------
+    // - read (get+list): any authenticated session, so a judge can see the
+    //   event(s) they're assigned to once that flow exists.
+    // - create/update: admin-only (the back office's Events section).
+    // - delete: admin-only, and only while the event is still a draft --
+    //   an event that's moved past setup shouldn't be deletable.
+    match /events/{eventId} {
+      allow read: if request.auth != null;
+      allow create, update: if isAdmin();
+      allow delete: if isAdmin() && resource.data.status == 'draft';
+    }
+
+    // Everything else (competitors, registrations, evaluations, ...):
     // default deny. Opened up collection-by-collection in later phases as
     // each flow is built and its rules are actually specified.
     match /{document=**} {
