@@ -257,21 +257,31 @@ function ev_tryCode() {
       return;
     }
     var data = snap.data() || {};
-    if (data.revoked === true) {
+    if (data.revoked === true || (data.role !== 'admin' && data.role !== 'judge')) {
       ev_showPage('code');
       ev_setError('Invalid or revoked code');
       return;
     }
-    if (data.role === 'admin') {
-      ev_showPage('admin');
-    } else if (data.role === 'judge') {
-      var nameEl = document.getElementById('ev-judge-name');
-      if (nameEl) nameEl.textContent = data.name || code;
-      ev_showPage('judge');
-    } else {
+
+    var uid = firebase.auth().currentUser.uid;
+    EV_db.collection('sessions').doc(uid).set({
+      code: code,
+      ts: firebase.firestore.FieldValue.serverTimestamp()
+    }).then(function () {
+      if (data.role === 'admin') {
+        ev_showPage('admin');
+      } else {
+        var nameEl = document.getElementById('ev-judge-name');
+        if (nameEl) nameEl.textContent = data.name || code;
+        ev_showPage('judge');
+      }
+    }).catch(function (sessionErr) {
+      // Session write failed (rules not yet published, network hiccup,
+      // etc): clean error, stay on the code screen rather than jumping to
+      // the generic "not configured" page -- login itself worked.
       ev_showPage('code');
-      ev_setError('Invalid or revoked code');
-    }
+      ev_setError('Could not start session. Please try again.');
+    });
   }).catch(function (err) {
     // Bad/placeholder config, network issue, or auth not enabled yet:
     // show a clean message instead of a raw Firebase error.
