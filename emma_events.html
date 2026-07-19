@@ -167,6 +167,26 @@ var FIREBASE_CONFIG = {
 
 var EV_db = null;
 var EV_firebaseReady = false;
+var EV_CATEGORIES = null; // cached catalog once loaded, or null
+
+// Loads emma_categories_2026.json once and caches it. Calls onSuccess(data)
+// or onError() -- never both, never neither. Safe to call repeatedly; only
+// the first call actually hits the network.
+function ev_loadCategories(onSuccess, onError) {
+  if (EV_CATEGORIES) {
+    onSuccess(EV_CATEGORIES);
+    return;
+  }
+  fetch('emma_categories_2026.json').then(function (resp) {
+    if (!resp.ok) { throw new Error('HTTP ' + resp.status); }
+    return resp.json();
+  }).then(function (data) {
+    EV_CATEGORIES = data;
+    onSuccess(EV_CATEGORIES);
+  }).catch(function (err) {
+    onError();
+  });
+}
 
 function ev_isConfigured() {
   return !!(FIREBASE_CONFIG && FIREBASE_CONFIG.apiKey);

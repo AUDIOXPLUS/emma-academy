@@ -1,0 +1,103 @@
+{
+  "version": "2026",
+  "categories": [
+    {
+      "id": "SQ-INSIDE",
+      "group": "SQ",
+      "name": "ESQL Inside",
+      "classes": [
+        { "id": "SQ-INSIDE-STD", "name": "Inside" }
+      ]
+    },
+    {
+      "id": "SQ-E",
+      "group": "SQ",
+      "name": "SQ E – Entry",
+      "classes": [
+        { "id": "SQ-E-3000", "name": "Up to 3.000€" },
+        { "id": "SQ-E-UNL", "name": "Unlimited" },
+        { "id": "SQ-E-AND", "name": "Android Limited" },
+        { "id": "SQ-E-DSP", "name": "DSP-Amp Limited" }
+      ]
+    },
+    {
+      "id": "SQ-S",
+      "group": "SQ",
+      "name": "SQ S – Skilled",
+      "classes": [
+        { "id": "SQ-S-OEM", "name": "OEM" },
+        { "id": "SQ-S-4000", "name": "Up to 4.000€" },
+        { "id": "SQ-S-UNL", "name": "Unlimited" },
+        { "id": "SQ-S-AND", "name": "Android Limited" },
+        { "id": "SQ-S-DSP", "name": "DSP-Amp Limited" }
+      ]
+    },
+    {
+      "id": "SQ-M",
+      "group": "SQ",
+      "name": "SQ M – Master",
+      "classes": [
+        { "id": "SQ-M-OEM4000", "name": "OEM up to 4.000€" },
+        { "id": "SQ-M-OEMUNL", "name": "OEM Unlimited" },
+        { "id": "SQ-M-8000", "name": "Up to 8.000€" },
+        { "id": "SQ-M-LTD", "name": "Limited" },
+        { "id": "SQ-M-UNL", "name": "Unlimited" },
+        { "id": "SQ-M-AND", "name": "Android Limited" },
+        { "id": "SQ-M-DSP", "name": "DSP-Amp Limited" }
+      ]
+    },
+    {
+      "id": "SQ-X",
+      "group": "SQ",
+      "name": "SQ X – Expert",
+      "classes": [
+        { "id": "SQ-X-LTD", "name": "Limited" },
+        { "id": "SQ-X-UNL", "name": "Unlimited" },
+        { "id": "SQ-X-AND", "name": "Android Limited" },
+        { "id": "SQ-X-DSP", "name": "DSP-Amp Limited" }
+      ]
+    },
+    {
+      "id": "MM",
+      "group": "MM",
+      "name": "MM – Multimedia",
+      "classes": [
+        { "id": "MM-STD", "name": "Multimedia (2.1.0–7.1.4)" }
+      ]
+    },
+    {
+      "id": "ESPL",
+      "group": "ESPL",
+      "name": "ESPL",
+      "classes": [
+        { "id": "ESPL-TRUNK3000", "name": "Trunk up to 3.000€" },
+        { "id": "ESPL-TRUNKLTD", "name": "Trunk Limited" },
+        { "id": "ESPL-BR4000", "name": "B/R up to 4.000€" },
+        { "id": "ESPL-BRLTD", "name": "B/R Limited" },
+        { "id": "ESPL-WALL8000", "name": "Wall 8.000€" },
+        { "id": "ESPL-WALLLTD", "name": "Wall Limited" },
+        { "id": "ESPL-EXPERT", "name": "Expert" }
+      ]
+    },
+    {
+      "id": "TUNING",
+      "group": "TUNING",
+      "name": "EMMA Tuning",
+      "classes": [
+        { "id": "TUNING-STOCKPLUS", "name": "Stock+" },
+        { "id": "TUNING-CUSTOMTRUNK", "name": "Custom Trunk" },
+        { "id": "TUNING-CUSTOMUNL", "name": "Custom Unlimited" }
+      ]
+    },
+    {
+      "id": "ESQL",
+      "group": "ESQL",
+      "name": "ESQL",
+      "classes": [
+        { "id": "ESQL-LTD", "name": "Limited" },
+        { "id": "ESQL-UNL", "name": "Unlimited" },
+        { "id": "ESQL-INSIDE", "name": "Inside" }
+      ]
+    }
+  ]
+}
