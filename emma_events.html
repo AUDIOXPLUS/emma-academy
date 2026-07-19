@@ -699,10 +699,104 @@ function ev_openEventDetail(eventId) {
       + (e.location ? '<div class="ev-detail-row">' + ev_esc(e.location) + '</div>' : '')
       + (e.organizer ? '<div class="ev-detail-row">Organizer: ' + ev_esc(e.organizer) + '</div>' : '')
       + (e.notes ? '<div class="ev-detail-row">' + ev_esc(e.notes) + '</div>' : '')
-      + '<div class="ev-detail-row">' + (e.activeClasses || []).length + ' active class(es)</div>';
+      + '<div class="ev-detail-row">' + (e.activeClasses || []).length + ' active class(es)</div>'
+      + '<div id="ev-assign-section"><div class="ev-empty">Loading assignments&hellip;</div></div>';
     box.innerHTML = html;
+    ev_loadAssignmentsSection(e);
   }).catch(function (err) {
     box.innerHTML = '<div class="ev-empty">Could not load event.</div>';
+  });
+}
+
+// Category ids that have at least one class in activeClassIds -- assignment
+// is done at category level, event creation is done at class level.
+function ev_deriveActiveCategories(activeClassIds) {
+  var classSet = {};
+  (activeClassIds || []).forEach(function (id) { classSet[id] = true; });
+  var cats = [];
+  if (!EV_CATEGORIES) return cats;
+  EV_CATEGORIES.categories.forEach(function (cat) {
+    var hasActive = false;
+    (cat.classes || []).forEach(function (cls) { if (classSet[cls.id]) hasActive = true; });
+    if (hasActive) cats.push({ id: cat.id, name: cat.name });
+  });
+  return cats;
+}
+
+function ev_loadAssignmentsSection(event) {
+  ev_loadCategories(function () {
+    var activeCats = ev_deriveActiveCategories(event.activeClasses || []);
+    EV_db.collection('judges').get().then(function (qs) {
+      var judges = [];
+      qs.forEach(function (doc) {
+        var j = doc.data() || {};
+        if (j.role === 'judge' && j.revoked !== true) {
+          judges.push({ code: doc.id, name: j.name });
+        }
+      });
+      ev_renderAssignmentsSection(event, activeCats, judges);
+    }).catch(function (err) {
+      var sec = document.getElementById('ev-assign-section');
+      if (sec) sec.innerHTML = '<div class="ev-empty">Could not load judges for assignment.</div>';
+    });
+  }, function () {
+    var sec = document.getElementById('ev-assign-section');
+    if (sec) sec.innerHTML = '<div class="ev-empty">Could not load categories catalog.</div>';
+  });
+}
+
+function ev_renderAssignmentsSection(event, activeCats, judges) {
+  var existing = {};
+  (event.judgeAssignments || []).forEach(function (a) {
+    existing[a.judgeCode] = {};
+    (a.categoryIds || []).forEach(function (cid) { existing[a.judgeCode][cid] = true; });
+  });
+
+  var html = '<div class="ev-group-header" style="margin-top:22px;">Judge Assignments</div>';
+  if (!activeCats.length) {
+    html += '<div class="ev-empty">This event has no active classes yet — edit the event to add some first.</div>';
+  } else if (!judges.length) {
+    html += '<div class="ev-empty">No active judges yet.</div>';
+  } else {
+    judges.forEach(function (j) {
+      html += '<div class="ev-assign-block" data-judge="' + ev_esc(j.code) + '">'
+        + '<div class="ev-list-item-title" style="margin-top:10px;">' + ev_esc(j.name || j.code) + '</div>';
+      activeCats.forEach(function (cat) {
+        var checked = (existing[j.code] && existing[j.code][cat.id]) ? ' checked' : '';
+        html += '<label class="ev-check-row"><input type="checkbox" value="' + ev_esc(cat.id) + '"' + checked + '> '
+          + ev_esc(cat.name) + '</label>';
+      });
+      html += '</div>';
+    });
+    html += '<div id="ev-assign-error" class="ev-error"></div>'
+      + '<button type="button" class="ev-btn ev-btn-primary" onclick="ev_saveAssignments()">Save assignments</button>';
+  }
+  var sec = document.getElementById('ev-assign-section');
+  if (sec) sec.innerHTML = html;
+}
+
+function ev_collectAssignments() {
+  var blocks = document.querySelectorAll('.ev-assign-block');
+  var result = [];
+  for (var i = 0; i < blocks.length; i++) {
+    var judgeCode = blocks[i].getAttribute('data-judge');
+    var boxes = blocks[i].querySelectorAll('input[type=checkbox]:checked');
+    var catIds = [];
+    for (var j = 0; j < boxes.length; j++) { catIds.push(boxes[j].value); }
+    if (catIds.length) { result.push({ judgeCode: judgeCode, categoryIds: catIds }); }
+  }
+  return result;
+}
+
+function ev_saveAssignments() {
+  var errEl = document.getElementById('ev-assign-error');
+  var assignments = ev_collectAssignments();
+  EV_db.collection('events').doc(EV_currentEventId).update({
+    judgeAssignments: assignments
+  }).then(function () {
+    ev_openEventDetail(EV_currentEventId); // reload so the saved state is what's shown
+  }).catch(function (err) {
+    if (errEl) errEl.textContent = 'Could not save assignments.';
   });
 }
 
